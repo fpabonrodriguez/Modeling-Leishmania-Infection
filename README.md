@@ -5,4 +5,6 @@ Project Summary: The immune system is a complex network which involves organs, c
 
 Note: This repository contains the R code and results from the project as supplemental material for the Manuscript: "Bayesian Hierarchical Model for Immune Responses toLeishmania-tick borne Co-Infection Study". Felix Pabon-Rodriguez, Grant Brown, Breanna M. Scorza.
 
-See results here: http://htmlpreview.github.com/?https://github.com/fpabonrodriguez/Research-Project-BHM/blob/63744c98eee3ca8a79a26381001bf8fd40c2db4c/Report_LeishTick_BHM_Model.html
+See results here: 
+http://htmlpreview.github.com/?
+https://github.com/fpabonrodriguez/Research-Project-BHM/blob/63744c98eee3ca8a79a26381001bf8fd40c2db4c/Report_LeishTick_BHM_Model.html

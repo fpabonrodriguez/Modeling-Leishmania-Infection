@@ -1,0 +1,2591 @@
+---
+title: '*Preliminary Report R01 Grant*'
+subtitle: '*Bayesian Hierarchical Model for Immune Responses to Leishmania-Tick Borne Coinfection Study*'
+author: '**Felix Pabon-Rodriguez**'
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    df_print: paged
+    number_sections: yes
+    toc: no
+  pdf_document:
+    toc: no
+header-includes:
+- \usepackage{amsmath}
+- \usepackage{geometry}
+- \usepackage{xcolor}
+- \usepackage{booktabs}
+- \usepackage{float}
+- \usepackage{bbm}
+geometry: margin=1in
+---
+
+```{r Setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, fig.align = "center", fig.pos = "H")
+
+# Loading libraries
+library(readxl)
+library(dplyr)
+library(coda) 
+library(rjags)
+library(MASS)
+library(ggplot2)
+library(R2jags)
+library(lattice)
+library(bayesplot)
+library(BayesPostEst)
+library(ggmcmc)
+library(RCurl)
+library(truncnorm)
+library(kableExtra)
+library(mvtnorm)
+library(rlist)
+library(extraDistr)
+library(msm)
+library(tmvtnorm)
+library(runjags)
+library(plotrix)
+
+# use deparse and substitute to get the name of a function argument
+getname <- function(xobj) {deparse(substitute(xobj))}
+
+```
+
+\ 
+
+The data set to be used in this research project comes from a sarolaner cohort study, which is provided by Petersen Lab at the University of Iowa. 
+
+\ 
+
+**Data Dictionary:**
+
+1. **Sarolaner**: is used to treat and control flea and tick infestations in dogs
+
+2. **SNAP**: IDEXX 4Dx SNAP test which tests for exposure to three different tick borne bacteria and heartworm
+
+3. **B**: Borrelia
+
+4. **A**: Anaplasma
+
+5. **E**: Ehrlichia
+
+6. **D**. Heartworm
+
+7. **SLA**:	soluble Leishmania antigen, used as target perform indirect ELISA, if dog has antibodies against SLA it has been exposed, higher anti-SLA OD ratio means higher amount of anti-Leishmania antibodies and more advanced disease
+
+8. **OD**:	optical density, ELISA readout
+
+9. **OD Ratio and cutoff**:	If the OD ratio is above the cut off for that replicate, it is considered a positive SLA ELISA result. The OD ratio provides continuous variable of same readout.
+
+10. **PCR**:	refers to polymerise chain reaction (PCR) of Leishmania DNA from dog blood, presence or absence of parasitemia
+
+11. **PCR load**:	calculated # Leishmania/mL blood based on a standard curve.
+
+12. **BL**:	borderline, only one well out of four amplified a PCR signal, could be a false positive
+
+13. **DPP**:	dual path platform Leishmania serological test, detects anti-Leishmania antibodies similar to SLA ELISA but more specific
+
+14. **leishvet score**:	from 0-4 with increasing disease severity
+
+\ 
+
+# Descriptive Summary
+
+```{r, echo=FALSE, warning=FALSE, message=FALSE}
+# Data set
+leish <- read.csv(file = "./Data/Sarolaner Cohort Data with missing values.csv", 
+                  header = TRUE, 
+                  na.strings = "", 
+                  stringsAsFactors = TRUE)
+
+# Dogs with ID 27, 91, 737, 743, 750, 758, 761, 770, 773 lost to follow-up
+#leish <- leish[!(leish$ID %in% c(737, 750, 758, 761, 770, 773)),]
+
+# New variable: disease_status per time point, based on leishvet score
+# healthy = 1 if leishvet score is 0 or 1
+# asymptomatic (inflammatory) = 2 if leishvet score is 1 or 2  
+# symptomatic (regulatory) = 3 if leishvet score is 3 or 4  
+leish$DStatus_TP1 <- ifelse(leish$LeishVet.Score.TP1 %in% c(0,1), 1, 
+                            ifelse(leish$LeishVet.Score.TP1 == 2, 2, 3))
+leish$DStatus_TP3 <- ifelse(leish$LeishVet.Score.TP3 %in% c(0,1), 1, 
+                            ifelse(leish$LeishVet.Score.TP3 == 2, 2, 3))
+leish$DStatus_TP4 <- ifelse(leish$LeishVet.Score.TP4 %in% c(0,1), 1, 
+                            ifelse(leish$LeishVet.Score.TP4 == 2, 2, 3))
+leish$DStatus_TP5 <- ifelse(leish$LeishVet.Score.TP5 %in% c(0,1), 1, 
+                            ifelse(leish$LeishVet.Score.TP5 == 2, 2, 3))
+leish$DStatus_TP6 <- ifelse(leish$LeishVet.Score.TP6 %in% c(0,1), 1, 
+                            ifelse(leish$LeishVet.Score.TP6 == 2, 2, 3))
+leish$DStatus_TP7 <- ifelse(leish$LeishVet.Score.TP7 %in% c(0,1), 1, 
+                            ifelse(leish$LeishVet.Score.TP7 == 2, 2, 3))
+
+# Add some unobserved variables
+leish$DStatus_TP2 <- rep(NA,nrow(leish)) 
+
+# Add removed state (Disease Status = 4, if dog is removed due to severe leish)
+# dog IDs: 758, 761, 743
+leish$DStatus_TP7[leish$ID == "758"] = 4
+leish$DStatus_TP7[leish$ID == "743"] = 4
+leish$DStatus_TP5[leish$ID == "761"] = 4
+leish$DStatus_TP6[leish$ID == "761"] = 4
+leish$DStatus_TP7[leish$ID == "761"] = 4
+
+
+#write.csv(leish, file = "dataset_for_julia.csv",
+#          col.names = TRUE, row.names = FALSE,
+#          na = "")
+```
+
+Data:
+
+```{r, echo=FALSE, message=FALSE, warning=FALSE}
+leish
+```
+
+\ 
+
+(a)  Age Group of the Dogs
+
+```{r, echo=FALSE, message=FALSE, warning=FALSE}
+leish %>%
+  group_by(Age_group) %>%
+  summarise(n = n(), prop = (n/50)*100)
+```
+
+\ 
+
+(b) Number of Dogs that Ever SNAP Positive (Coinfection Positive)
+
+```{r, echo=FALSE, message=FALSE, warning=FALSE}
+leish %>%
+  group_by(Ever.SNAP.Positive) %>%
+  summarise(n = n(), prop = (n/50)*100)
+```
+
+\ 
+
+(c) Types of Coinfection Identified per Time Point
+
+```{r, echo=FALSE}
+table(leish$SNAP_TP1)
+table(leish$SNAP_TP2)
+table(leish$SNAP_TP3)
+table(leish$SNAP_TP4)
+table(leish$SNAP_TP5)
+table(leish$SNAP_TP6)
+table(leish$SNAP_TP7)
+```
+
+\ 
+
+(d) Mean of PCR Load per Point Time (# parasites / ML blood)
+
+```{r, echo=FALSE, message=FALSE, warning=FALSE}
+leish %>%
+  summarise_at(c("PCR_Load_TP1", "PCR_Load_TP2", 
+                 "PCR_Load_TP3", "PCR_Load_TP4",
+                 "PCR_Load_TP5", "PCR_Load_TP6",
+                 "PCR_Load_TP7"), 
+               mean, na.rm = TRUE)
+```
+
+\ 
+
+(e) SD of PCR Load per Point Time (# parasites / ML blood)
+
+```{r, echo=FALSE, message=FALSE, warning=FALSE}
+leish %>%
+  summarise_at(c("PCR_Load_TP1", "PCR_Load_TP2", 
+                 "PCR_Load_TP3", "PCR_Load_TP4",
+                 "PCR_Load_TP5", "PCR_Load_TP6",
+                 "PCR_Load_TP7"), 
+               sd, na.rm = TRUE)
+```
+
+\ 
+
+(f) PCR Result when Enroll (Presence of Parasitemia)
+
+```{r, echo=FALSE, message=FALSE, warning=FALSE}
+leish %>%
+  group_by(PCR_Result_Enroll) %>%
+  summarise(n = n()) 
+```
+Just about (5 out of 50) 10% of the dogs shows presence of parasites while (45 out of the 50) 90% do not shows evidence of parasitemia in the blood/tissue samples.  
+
+
+\ 
+
+(g) DPP Results when Enroll (Presence of anti-Leishmania antibodies)
+
+```{r, echo=FALSE, message=FALSE, warning=FALSE}
+leish %>%
+  group_by(DPP_Enroll.Result) %>%
+  summarise(n = n())
+```
+
+By looking at the results from the DPP test, which detects anti-Leishmania antibodies similar to SLA ELISA but more specific, we noticed that only (19 out of 50) 38% of the dogs shows presence of anti-Leishmania antibodies. Recall that looking for antibodies does not indicates current infections.
+
+\ 
+
+(h) PCR Results per Point Time
+
+```{r, echo=FALSE}
+pcr_pos <- c(sum(1*(leish$PCR_Result_TP1 == "P"), na.rm = TRUE),
+              sum(1*(leish$PCR_Result_TP2 == "P"), na.rm = TRUE),
+              sum(1*(leish$PCR_Result_TP3 == "P"), na.rm = TRUE),
+              sum(1*(leish$PCR_Result_TP4 == "P"), na.rm = TRUE),
+              sum(1*(leish$PCR_Result_TP5 == "P"), na.rm = TRUE),
+              sum(1*(leish$PCR_Result_TP6 == "P"), na.rm = TRUE),
+              sum(1*(leish$PCR_Result_TP7 == "P"), na.rm = TRUE))
+pcr_neg <- c(sum(1*(leish$PCR_Result_TP1 == "N"), na.rm = TRUE),
+              sum(1*(leish$PCR_Result_TP2 == "N"), na.rm = TRUE),
+              sum(1*(leish$PCR_Result_TP3 == "N"), na.rm = TRUE),
+              sum(1*(leish$PCR_Result_TP4 == "N"), na.rm = TRUE),
+              sum(1*(leish$PCR_Result_TP5 == "N"), na.rm = TRUE),
+              sum(1*(leish$PCR_Result_TP6 == "N"), na.rm = TRUE),
+              sum(1*(leish$PCR_Result_TP7 == "N"), na.rm = TRUE))
+pcr_bl <- c(sum(1*(leish$PCR_Result_TP1 == "BL"), na.rm = TRUE),
+              sum(1*(leish$PCR_Result_TP2 == "BL"), na.rm = TRUE),
+              sum(1*(leish$PCR_Result_TP3 == "BL"), na.rm = TRUE),
+              sum(1*(leish$PCR_Result_TP4 == "BL"), na.rm = TRUE),
+              sum(1*(leish$PCR_Result_TP5 == "BL"), na.rm = TRUE),
+              sum(1*(leish$PCR_Result_TP6 == "BL"), na.rm = TRUE),
+              sum(1*(leish$PCR_Result_TP7 == "BL"), na.rm = TRUE))
+data.frame(Time.Points = 1:7,
+           PCR.Negative = pcr_neg,
+           PCR.Positive = pcr_pos,
+           PCR.Borderline.BL = pcr_bl,
+           PCR.NA = nrow(leish) - pcr_neg - pcr_pos - pcr_bl) 
+```
+When we look at the PCR, which refers to polymerise chain reaction of Leishmania DNA from dog blood, indicating current presence or absence of parasitemia, we notice that in more than 29 dogs per each time (out of the 50) the results of PCR were negative to current Leishmania infections.
+
+
+\ 
+
+(i) LeishVet Score per Point Time
+
+```{r, echo=FALSE}
+leish_vet0 <- c(sum(1*(leish$LeishVet.Score.TP1 == 0), na.rm = TRUE),
+                NA,
+              sum(1*(leish$LeishVet.Score.TP3 == 0), na.rm = TRUE),
+              sum(1*(leish$LeishVet.Score.TP4 == 0), na.rm = TRUE),
+              sum(1*(leish$LeishVet.Score.TP5 == 0), na.rm = TRUE),
+              sum(1*(leish$LeishVet.Score.TP6 == 0), na.rm = TRUE),
+              sum(1*(leish$LeishVet.Score.TP7 == 0), na.rm = TRUE))
+
+leish_vet1 <- c(sum(1*(leish$LeishVet.Score.TP1 == 1), na.rm = TRUE),
+              NA,
+              sum(1*(leish$LeishVet.Score.TP3 == 1), na.rm = TRUE),
+              sum(1*(leish$LeishVet.Score.TP4 == 1), na.rm = TRUE),
+              sum(1*(leish$LeishVet.Score.TP5 == 1), na.rm = TRUE),
+              sum(1*(leish$LeishVet.Score.TP6 == 1), na.rm = TRUE),
+              sum(1*(leish$LeishVet.Score.TP7 == 1), na.rm = TRUE))
+
+leish_vet2 <- c(sum(1*(leish$LeishVet.Score.TP1 == 2), na.rm = TRUE),
+              NA,
+              sum(1*(leish$LeishVet.Score.TP3 == 2), na.rm = TRUE),
+              sum(1*(leish$LeishVet.Score.TP4 == 2), na.rm = TRUE),
+              sum(1*(leish$LeishVet.Score.TP5 == 2), na.rm = TRUE),
+              sum(1*(leish$LeishVet.Score.TP6 == 2), na.rm = TRUE),
+              sum(1*(leish$LeishVet.Score.TP7 == 2), na.rm = TRUE))
+
+leish_vet3 <- c(sum(1*(leish$LeishVet.Score.TP1 == 3), na.rm = TRUE),
+              NA,
+              sum(1*(leish$LeishVet.Score.TP3 == 3), na.rm = TRUE),
+              sum(1*(leish$LeishVet.Score.TP4 == 3), na.rm = TRUE),
+              sum(1*(leish$LeishVet.Score.TP5 == 3), na.rm = TRUE),
+              sum(1*(leish$LeishVet.Score.TP6 == 3), na.rm = TRUE),
+              sum(1*(leish$LeishVet.Score.TP7 == 3), na.rm = TRUE))
+
+leish_vet4 <- c(sum(1*(leish$LeishVet.Score.TP1 == 4), na.rm = TRUE),
+              NA,
+              sum(1*(leish$LeishVet.Score.TP3 == 4), na.rm = TRUE),
+              sum(1*(leish$LeishVet.Score.TP4 == 4), na.rm = TRUE),
+              sum(1*(leish$LeishVet.Score.TP5 == 4), na.rm = TRUE),
+              sum(1*(leish$LeishVet.Score.TP6 == 4), na.rm = TRUE),
+              sum(1*(leish$LeishVet.Score.TP7 == 4), na.rm = TRUE))
+
+leish_vetNA <- c(sum(1*is.na(leish$LeishVet.Score.TP1)),
+                 nrow(leish),
+                 sum(1*is.na(leish$LeishVet.Score.TP3)),
+                 sum(1*is.na(leish$LeishVet.Score.TP4)),
+                 sum(1*is.na(leish$LeishVet.Score.TP5)),
+                 sum(1*is.na(leish$LeishVet.Score.TP6)),
+                 sum(1*is.na(leish$LeishVet.Score.TP7))) 
+
+data.frame(TP = 1:7,
+           LVet_0 = leish_vet0,
+           LVet_1 = leish_vet1,
+           LVet_2 = leish_vet2,
+           LVet_3 = leish_vet3,
+           LVet_4 = leish_vet4,
+           LVet_NA = leish_vetNA) 
+```
+
+\ 
+
+(j) Disease Status per Time Point
+```{r, echo=FALSE, message=FALSE, warning=FALSE}
+table(leish$DStatus_TP1, useNA = "ifany")
+table(leish$DStatus_TP2, useNA = "ifany")
+table(leish$DStatus_TP3, useNA = "ifany")
+table(leish$DStatus_TP4, useNA = "ifany")
+table(leish$DStatus_TP5, useNA = "ifany")
+table(leish$DStatus_TP6, useNA = "ifany")
+table(leish$DStatus_TP7, useNA = "ifany")
+```
+
+\ 
+
+# Plots
+
+```{r, echo=FALSE}
+ggbg <- function(color) {
+    points(0, 0, pch=16, cex=1e6, col=color)
+    grid(col="white", lty=1)
+}
+
+pcr_load <- as.data.frame(with(leish,cbind(ID,PCR_Load_TP1, PCR_Load_TP2, PCR_Load_TP3,
+                             PCR_Load_TP4, PCR_Load_TP5, PCR_Load_TP6,
+                             PCR_Load_TP7)))
+antib <- as.data.frame(with(leish, cbind(ID, SLA.ELISA.OD.ratio_TP1,SLA.ELISA.OD.ratio_TP2,
+                           SLA.ELISA.OD.ratio_TP3,SLA.ELISA.OD.ratio_TP4,
+                           SLA.ELISA.OD.ratio_TP5,SLA.ELISA.OD.ratio_TP6,
+                           SLA.ELISA.OD.ratio_TP7)))
+dstat <- as.data.frame(with(leish, cbind(ID, DStatus_TP1, DStatus_TP2, DStatus_TP3,
+                           DStatus_TP4, DStatus_TP5, DStatus_TP6, DStatus_TP7)))
+
+
+
+long_pcrload <- reshape(pcr_load, 
+                         direction = "long",
+                         varying = list(names(pcr_load)[2:8]),
+                         v.names = "Value",
+                         idvar = c("ID"),
+                         timevar = "TimePoint",
+                         times = 1:7)
+long_pcrload <- long_pcrload[order(long_pcrload$ID),] 
+
+
+long_antib <- reshape(antib, 
+                      direction = "long",
+                      varying = list(names(antib)[2:8]),
+                      v.names = "Value",
+                      idvar = c("ID"),
+                      timevar = "TimePoint",
+                      times = 1:7)
+long_antib <- long_antib[order(long_antib$ID),] 
+
+
+long_dstat <- reshape(dstat, 
+                      direction = "long",
+                      varying = list(names(dstat)[2:8]),
+                      v.names = "Value",
+                      idvar = c("ID"),
+                      timevar = "TimePoint",
+                      times = 1:7)
+long_dstat <- long_dstat[order(long_dstat$ID),] 
+
+
+mean_PCR_load <- c(mean(leish$PCR_Load_TP1, na.rm = TRUE),
+                   mean(leish$PCR_Load_TP2, na.rm = TRUE),
+                   mean(leish$PCR_Load_TP3, na.rm = TRUE),
+                   mean(leish$PCR_Load_TP4, na.rm = TRUE),
+                   mean(leish$PCR_Load_TP5, na.rm = TRUE),
+                   mean(leish$PCR_Load_TP6, na.rm = TRUE),
+                   mean(leish$PCR_Load_TP7, na.rm = TRUE))
+
+mean_antibodies <- c(mean(leish$SLA.ELISA.OD.ratio_TP1, na.rm = TRUE),
+                   mean(leish$SLA.ELISA.OD.ratio_TP2, na.rm = TRUE),
+                   mean(leish$SLA.ELISA.OD.ratio_TP3, na.rm = TRUE),
+                   mean(leish$SLA.ELISA.OD.ratio_TP4, na.rm = TRUE),
+                   mean(leish$SLA.ELISA.OD.ratio_TP5, na.rm = TRUE),
+                   mean(leish$SLA.ELISA.OD.ratio_TP6, na.rm = TRUE),
+                   mean(leish$SLA.ELISA.OD.ratio_TP7, na.rm = TRUE))
+
+par(mfrow=c(1,2))
+interaction.plot(long_pcrload$TimePoint, long_pcrload$ID, long_pcrload$Value, 
+                 xlab="Time Point", ylab="PCR Load", legend=F, lty = 1, cex = 4, 
+                 lwd = 2, main = "Pathogen Load Over Time", 
+                 col = rgb(255, 0, 0, max = 255, alpha = 150, names = "red"),
+                 panel.first = ggbg("gray92")) 
+lines(mean_PCR_load, col = "black", lwd = 3)
+grid(NULL, NULL, col = "darkgray")
+
+interaction.plot(long_antib$TimePoint, long_antib$ID, long_antib$Value, 
+                 xlab="Time Point", ylab="Antibody Levels", legend=F, lty = 1, 
+                 lwd = 2, main = "Antibody Levels Over Time", cex = 4,
+                 col = rgb(0, 102, 0, max = 255, alpha = 150, names = "darkgreen"), 
+                panel.first = ggbg("gray92")) 
+lines(mean_antibodies, col = "black", lwd = 3)
+grid(NULL, NULL, col = "darkgray")
+
+
+plot(mean_PCR_load, type = "b",
+     main = "Mean PCR Load per Time Point",
+     xlab = "Time Point",
+     ylab = "Mean # Leishmania parasites / mL blood")
+
+
+boxplot(leish$PCR_Load_TP1,
+        leish$PCR_Load_TP2,
+        leish$PCR_Load_TP3,
+        leish$PCR_Load_TP4,
+        leish$PCR_Load_TP5,
+        leish$PCR_Load_TP6,
+        leish$PCR_Load_TP7,
+        ylim = c(0,1000),
+        at = 1:7,
+        main = "PCR Load per Time Point",
+        xlab = "Time Point",
+        ylab = "# Leishmania parasites / mL blood",
+        names = 1:7)
+
+
+par(mfrow=c(2,2))
+hist(leish$PCR_Load_TP1, main = "TP1", 
+     xlab = "# Leishmania parasites / mL blood ", 
+     col = "gray")
+hist(leish$PCR_Load_TP2, main = "TP2", 
+     xlab = "# Leishmania parasites / mL blood ", 
+     col = "gray")
+hist(leish$PCR_Load_TP3, main = "TP3", 
+     xlab = "# Leishmania parasites / mL blood ", 
+     col = "gray")
+hist(leish$PCR_Load_TP4, main = "TP4", 
+     xlab = "# Leishmania parasites / mL blood ", 
+     col = "gray")
+hist(leish$PCR_Load_TP5, main = "TP5", 
+     xlab = "# Leishmania parasites / mL blood ", 
+     col = "gray")
+hist(leish$PCR_Load_TP6, main = "TP6", 
+     xlab = "# Leishmania parasites / mL blood ", 
+     col = "gray")
+hist(leish$PCR_Load_TP7, main = "TP7", 
+     xlab = "# Leishmania parasites / mL blood ", 
+     col = "gray")
+```
+
+\ 
+
+# Model
+
+The goal of this BH model is to study and undertand the relationship over time between Leishmania infection (PCR load) in dogs with the disease severity score (Leish Vet Score) and immunological measure of antibodies (SLA ELISA OD Ratio). In order to keep LeishVet score linked in some way with our previous assumption of disease status, the following variable was defined,
+
+$$
+D_{i,t}=\begin{cases}
+1 \, (\text{Healthy}), & \text{if} \: leishvet=0\,\text{or}\,1 \: \text{for subject } i \text{ at time } t\\
+2 \, (\text{Asymptomatic}), & \text{if} \: leishvet=2 \: \text{for subject } i \text{ at time } t\\
+3 \, (\text{Symptomatic}), & \text{if} \: leishvet=3\,\text{or}\,4 \: \text{for subject } i \text{ at time } t. \\
+4 \, (\text{Removed}), & \text{if} \: \text{subject } i \text{ at time } t \: \text{was removed due to severe leishmaniasis}. \\
+\end{cases}
+$$
+Predictors such as age group, treatment group, indicator of co-infection (SNAP), sex (if available), and DPP results (positive/negative) are some of the variables that will be considered. To facilitate the interpretation, the construction of the model, and derivations, let's define $D_{i,t}^{(1)}$, $D_{i,t}^{(2)}$, and $D_{i,t}^{(3)}$ as indicator variables of whether a subject $i$ at time $t$ is in disease status $k$, where $k\in \{1,2,3\}$. Mathematically, we have 
+
+$$
+D_{i,t}^{(1)}=\begin{cases}
+1 , & \text{if disease status is 1 for subject } i \text{ at time } t\\
+0 , & otherwise,
+\end{cases}
+$$
+$$
+D_{i,t}^{(2)}=\begin{cases}
+1 , & \text{if disease status is 2 for subject } i \text{ at time } t\\
+0 , & otherwise
+\end{cases}
+$$
+$$
+D_{i,t}^{(3)}=\begin{cases}
+1 , & \text{if disease status is 3 for subject } i \text{ at time } t\\
+0 , & otherwise
+\end{cases}
+$$
+
+The last category of the Disease Status correspond to a removed state, which is taking into account those subjects (dogs) that were dropped out of the study due to severe Leishmaniasis. The outcome measures of subjects that were dropped out due to other reasons (not related to Leishmaniasis) are considered as missing and will be estimated as part of the MCMC sampler.    
+
+For $N = 50$ subjects and $T = 7$ time points, the preliminary model can be described as follows:
+
+\ 
+
+
+$$
+\begin{equation}
+\begin{split}
+    P_{i,t+1} &\sim  Normal(M^P_{i,t}\boldsymbol{\beta}_P + X_i \boldsymbol{\alpha}_P, \: \sigma^2_{P})  \\
+    A_{i,t+1} &\sim  Normal(M^A_{i,t} \boldsymbol{\beta}_A + X_i\boldsymbol{\alpha}_A, \: \sigma^2_{A})  \\
+    D_{i,t+1} &\sim  Multinomial(1; \: \pi^{(1)}_{i,t}, \: \pi^{(2)}_{i,t}, \: \pi^{(3)}_{i,t}, \: \pi^{(4)}_{i,t} ) \\
+    \pi^{(k)}_{i,t} &= \frac{exp \Big[M^{D(k)}_{i,t} \boldsymbol{\beta}^{(k)}_D + X_i \boldsymbol{\alpha}_D \Big]}{1 + \sum_{g=1,2,3} exp \Big[M^{D(g)}_{i,t} \boldsymbol{\beta}^{(g)}_D + X_i \boldsymbol{\alpha}_D  \Big]}
+\end{split}
+\end{equation}
+$$
+
+\ 
+
+$$
+\begin{equation}
+\begin{split}
+    d^{P}_{i,t} &= P_{i,t} - P_{i,t-1}   \\
+    d^{A}_{i,t} &= A_{i,t} - A_{i,t-1}   \\
+    M^P_{i,t} &= [P_{i,t} \quad D_{i,t}^{(1)}P_{i,t} \quad D_{i,t}^{(2)}P_{i,t} \quad D_{i,t}^{(3)}P_{i,t} \quad D_{i,t}^{(1)}d^{P}_{i,t} \quad D_{i,t}^{(2)}d^{P}_{i,t}\\
+    & \quad \quad D_{i,t}^{(3)}d^{P}_{i,t} \quad     D_{i,t}^{(1)}d^{A}_{i,t} \quad D_{i,t}^{(2)}d^{A}_{i,t} \quad  D_{i,t}^{(3)}d^{A}_{i,t}]  \\
+    M^A_{i,t} &= [P_{i,t} \quad A_{i,t} \quad     D_{i,t}^{(1)}d^{P}_{i,t} \quad D_{i,t}^{(2)}d^{P}_{i,t} \quad  D_{i,t}^{(3)}d^{P}_{i,t} \quad D_{i,t}^{(1)}d^{A}_{i,t}    \\
+    & \quad \quad D_{i,t}^{(2)}d^{A}_{i,t} \quad     D_{i,t}^{(3)}d^{A}_{i,t}] \\
+    M^{D(k)}_{i,t} &= [D_{i,t}^{(k)} \quad D_{i,t}^{(k)} P_{i,t} \quad     D_{i,t}^{(k)} A_{i,t}  ] \\
+    M^{D(g)}_{i,t} &= [D_{i,t}^{(g)} \quad D_{i,t}^{(g)} P_{i,t} \quad     D_{i,t}^{(g)} A_{i,t}] \\
+    X_i &= [1 \quad age_i \quad snap_i \quad dpp_i \quad trt_i] 
+\end{split}
+\end{equation}
+$$
+
+\ 
+
+# Derivations
+
+## Complete Data Likelihood
+
+Let $\theta_P$, $\theta_A$, and $\theta_D$ be the vectors of parameters associated with pathogen load, anti-Leishmania antibodies and disease status, respectively. Then, the complete data likelihood could be written as
+
+$$
+\begin{split}
+f(P,A,D|\theta_P, \theta_A, \theta_D) &= \prod_{i=1}^{N} \Big[f(P_{i,1})f(A_{i,1})f(D_{i,1}) \prod_{t=2}^{T} \Big\{f(P_{i,t}|P_{i,t-1},\theta_P)f(A_{i,t}|A_{i,t-1},\theta_A)f(D_{i,t}|D_{i,t-1},\theta_D) \Big\} \Big] \\
+& \propto \prod_{i=1}^{N} \Bigg[f(P_{i,1})f(A_{i,1})f(D_{i,1}) \prod_{t=2}^{T} \Bigg\{ \Big(\frac{1}{\sigma_P} exp \Big\{-\frac{1}{2\sigma^2_P} (P_{i,t}-\eta^P_{i,t-1})^2 \Big\} \Big) \\
+&\hspace{10em} \cdot \Big(\frac{1}{\sigma_A} exp \Big\{-\frac{1}{2\sigma^2_A} (A_{i,t}-\eta^A_{i,t-1})^2 \Big\} \Big) \\
+& \hspace{10em}\cdot \Big({\pi^{(1)}_{i,t-1}}^{D^{(1)}_{i,t-1}} \cdot {\pi^{(2)}_{i,t-1}}^{D^{(2)}_{i,t-1}} \cdot {\pi^{(3)}_{i,t-1}}^{D^{(3)}_{i,t-1}} \cdot
+{\pi^{(4)}_{i,t-1}}^{1-D_{i,t-1}^{(1)}-D_{i,t-1}^{(2)}-D_{i,t-1}^{(3)}}\Big)\Bigg\} \Bigg]
+\end{split}
+$$
+where
+$$
+\begin{split}
+\eta^{P}_{i,t-1} &= \beta_P M^P_{i,t}  + \alpha_P X_i \\
+\eta^{A}_{i,t-1} &= \beta_A M^A_{i,t} + \alpha_A X_i \\
+\pi^{(4)}_{i,t-1} &= 1 - \pi^{(1)}_{i,t-1} - \pi^{(2)}_{i,t-1} - \pi^{(3)}_{i,t-1} \\
+\end{split}
+$$
+
+## Full Conditionals
+
+Since disease status is unobserved for some of the time points (latent), then we are also interested in estimating the corresponding disease states for those time points that were not observed. Therefore, the full conditional for disease status is given by
+
+$$
+\begin{split}
+f_c(D|P,A,\theta_P, \theta_A, \theta_D) &\propto \prod_{i=1}^{N} \Bigg[f(P_{i,1})f(A_{i,1})f(D_{i,1}) \prod_{t=2}^{T} \Bigg\{exp \Big\{-\frac{1}{2\sigma^2_P} (P_{i,t}-\eta^P_{i,t-1})^2 \Big\} \\
+&\hspace{6em}\cdot \Big({\pi^{(1)}_{i,t-1}}^{D^{(1)}_{i,t-1}} \cdot {\pi^{(2)}_{i,t-1}}^{D^{(2)}_{i,t-1}} \cdot {\pi^{(3)}_{i,t-1}}^{D^{(3)}_{i,t-1}} \cdot
+{\pi^{(4)}_{i,t-1}}^{1-D_{i,t-1}^{(1)}-D_{i,t-1}^{(2)}-D_{i,t-1}^{(3)}} \Big)\Bigg\} \Bigg]
+\end{split}
+$$
+\ 
+
+Full conditionals for Antibodies $A$ and Pathogen load $P$ are:
+
+$$
+\begin{split}
+f_c(A|P,D,\theta_P, \theta_A, \theta_D) &\propto \prod_{i=1}^{N} \Bigg[f(P_{i,1})f(A_{i,1})f(D_{i,1}) \prod_{t=2}^{T} \Bigg\{exp \Big\{-\frac{1}{2\sigma^2_A} (A_{i,t}-\eta^A_{i,t-1})^2 \Big\}  \Bigg]
+\end{split}
+$$
+
+\ 
+
+$$
+\begin{split}
+f_c(P|A,D,\theta_P, \theta_A, \theta_D) &\propto \prod_{i=1}^{N} \Bigg[f(P_{i,1})f(A_{i,1})f(D_{i,1}) \prod_{t=2}^{T} \Bigg\{exp \Big\{-\frac{1}{2\sigma^2_P} (P_{i,t}-\eta^P_{i,t-1})^2 \Big\}  \Bigg] 
+\end{split}
+$$
+
+\ 
+
+The full conditionals for the other parameters are listed below:
+
+1. If $\omega_1$ is equal to one of the parameters in $\{\beta_P,\alpha_P,\sigma^2_P\}$, then the full conditional is given by
+$$
+\begin{split}
+f_c(\omega_1|.) &\propto \prod_{i=1}^{N} \Bigg[f(P_{i,1})f(A_{i,1})f(D_{i,1}) \prod_{t=2}^{T} \Bigg\{exp \Big\{-\frac{1}{2\sigma^2_P} (P_{i,t}-\eta^P_{i,t-1})^2 \Big\}\Bigg\} \Bigg] \cdot \pi(\omega_1)
+\end{split}
+$$
+\ 
+
+2. If $\omega_2$ is equals to one of the parameters in $\{\beta_A, \alpha_A, \sigma^2_A\}$, then the full conditional is given by
+
+$$
+\begin{split}
+f_c(\omega_2|.) &\propto \prod_{i=1}^{N} \Bigg[f(P_{i,1})f(A_{i,1})f(D_{i,1}) \prod_{t=2}^{T} \Bigg\{exp \Big\{-\frac{1}{2\sigma^2_A} (A_{i,t}-\eta^A_{i,t-1})^2 \Big\}\Bigg\} \Bigg] \cdot \pi(\omega_2)
+\end{split}
+$$
+
+\ 
+
+3. Finally, if $\omega_3$ is equals to one of the parameters in $\{\beta^{(k)}_D,\alpha_D\}$ for $k=1,2,3$, then the full conditional is given by
+
+$$
+\begin{split}
+f_c(\omega_3|.) &\propto \prod_{i=1}^{N} \Bigg[f(P_{i,1})f(A_{i,1})f(D_{i,1})
+ &\Bigg\{ \prod_{t=2}^{T} \Big({\pi^{(1)}_{i,t-1}}^{D^{(1)}_{i,t-1}} \cdot {\pi^{(2)}_{i,t-1}}^{D^{(2)}_{i,t-1}} \cdot {\pi^{(3)}_{i,t-1}}^{D^{(3)}_{i,t-1}} \cdot
+{\pi^{(4)}_{i,t-1}}^{1-D_{i,t-1}^{(1)}-D_{i,t-1}^{(2)}-D_{i,t-1}^{(3)}} \Big)\Bigg\} \Bigg] \cdot \pi(\omega_3)
+\end{split}
+$$
+
+\ 
+
+# MCMC Analysis and Results
+
+\ 
+
+## Scaled Datasets (Pathogen Load, Antibodies, Disease Status, and Covariates)
+
+Since the data set contains large values for pathogen load over time, then original values were scaled by using a modified version of the original scale. We used #Parasites (in fifty thousands) / mL of blood. In the case of the SLA ELISA OD Ratio (antibody levels), we scaled by 10. The reason for scaling was only to solve some computational issues. 
+
+```{r, echo=FALSE, message=FALSE, warning=FALSE}
+#### DATA ===========================================================
+dt_P <- as.matrix(leish[,c("PCR_Load_TP1","PCR_Load_TP2", 
+                           "PCR_Load_TP3", "PCR_Load_TP4",
+                           "PCR_Load_TP5", "PCR_Load_TP6",
+                           "PCR_Load_TP7")])
+dt_D <- as.matrix(leish[,c("DStatus_TP1","DStatus_TP2", 
+                           "DStatus_TP3", "DStatus_TP4",
+                           "DStatus_TP5", "DStatus_TP6",
+                           "DStatus_TP7")])
+dt_A <- as.matrix(leish[,c("SLA.ELISA.OD.ratio_TP1",
+                           "SLA.ELISA.OD.ratio_TP2", 
+                           "SLA.ELISA.OD.ratio_TP3", 
+                           "SLA.ELISA.OD.ratio_TP4",
+                           "SLA.ELISA.OD.ratio_TP5",
+                           "SLA.ELISA.OD.ratio_TP6",
+                           "SLA.ELISA.OD.ratio_TP7")])
+
+N = nrow(leish)
+Time = ncol(dt_P)
+
+dt_age <- data.frame(matrix(data = rep(leish$Age_group,Time), 
+                            ncol = ncol(dt_P), nrow = nrow(dt_P)))
+dt_snap <- data.frame(matrix(data = rep(leish$Ever.SNAP.Positive,Time), 
+                             ncol = ncol(dt_P), nrow = nrow(dt_P)))
+dt_dpp <- data.frame(matrix(data = rep(leish$DPP_Enroll,Time), 
+                            ncol = ncol(dt_P), nrow = nrow(dt_P)))
+dt_trt <- data.frame(matrix(data = rep(leish$treatment_group,Time), 
+                            ncol = ncol(dt_P), nrow = nrow(dt_P)))
+
+dt_age1 <- data.frame(matrix(data = as.numeric(rep(leish$Age_group,Time)), 
+                            ncol = ncol(dt_P), nrow = nrow(dt_P)))
+dt_snap1 <- data.frame(matrix(data = as.numeric(rep(leish$Ever.SNAP.Positive,Time)), 
+                             ncol = ncol(dt_P), nrow = nrow(dt_P)))
+dt_dpp1 <- data.frame(matrix(data = rep(leish$DPP_Enroll,Time), 
+                            ncol = ncol(dt_P), nrow = nrow(dt_P)))
+dt_trt1 <- data.frame(matrix(data = as.numeric(rep(leish$treatment_group,Time)), 
+                            ncol = ncol(dt_P), nrow = nrow(dt_P)))
+#write.csv(dt_P, file = "dt_P.csv", col.names = TRUE, row.names = FALSE, na = "")
+#write.csv(dt_D, file = "dt_D.csv", col.names = TRUE, row.names = FALSE, na = "")
+#write.csv(dt_A, file = "dt_A.csv", col.names = TRUE, row.names = FALSE, na = "")
+write.csv(dt_age1, file = "dt_age.csv", col.names = TRUE, row.names = FALSE, na = "")
+write.csv(dt_snap1, file = "dt_snap.csv", col.names = TRUE, row.names = FALSE, na = "")
+write.csv(dt_dpp1, file = "dt_dpp.csv", col.names = TRUE, row.names = FALSE, na = "")
+write.csv(dt_trt1, file = "dt_trt.csv", col.names = TRUE, row.names = FALSE, na = "")
+
+
+# Scale Pathogen load (divide by 50,000; which is 5e+04) 
+# Antibodies (divide by 10)
+# DPP, in Covariates (divide by 200)
+generalmaxP = 5e+04
+generalmaxA = 10
+generalmaxDPP = 200
+
+dt_P = dt_P/generalmaxP
+dt_A = dt_A/generalmaxA
+dt_X <- cbind(1, leish$Age_group, 
+              leish$Ever.SNAP.Positive,
+              leish$DPP_Enroll/generalmaxDPP,
+              leish$treatment_group)
+
+otherdt_X <- cbind(1, 
+              as.numeric(leish$Age_group)-1, 
+              as.numeric(leish$Ever.SNAP.Positive)-1,
+              leish$DPP_Enroll/generalmaxDPP,
+              as.numeric(leish$treatment_group)-1)
+
+
+#write.csv(dt_X, file = "dt_trt.csv", col.names = TRUE, row.names = FALSE, na = "")
+#write.csv(otherdt_X, file = "dt_X.csv", col.names = TRUE, row.names = FALSE, na = "")
+
+# function for multinomial
+val_multinom <- function(y){
+  dt <- data.frame(matrix(NA,ncol = 4))
+  for(i in 1:length(y)){
+    dt[i,] <- if(y[i] == 1){c(1,0,0,0)} 
+    else if(y[i] == 2){c(0,1,0,0)} 
+    else if(y[i] == 3){c(0,0,1,0)} 
+    else if(y[i] == 4){c(0,0,0,1)} 
+    else {NA} # in case D status is missing
+  }
+  dt
+}
+
+# entries in matrix that needs to be ignored due to removing of subjects
+# dogs removed: 758, 761, 743
+total_entries = N*Time
+entries = dt_D
+entries[1:total_entries] = 1:total_entries
+ignore_entries = c(318,333,236,286,336)
+ignore_whichID = c(18,33,36) 
+
+# missing
+missD = which(is.na(dt_D))[!(which(is.na(dt_D)) %in% ignore_entries)]
+missA = which(is.na(dt_A))[!(which(is.na(dt_A)) %in% ignore_entries)]
+missP = which(is.na(dt_P))[!(which(is.na(dt_P)) %in% ignore_entries)]
+
+```
+
+\ 
+
+Pathogen Load (Scaled, divided by 50,000):
+```{r, echo=FALSE, message=FALSE, warning=FALSE}
+as.data.frame(dt_P)
+```
+Note: The scaling was done to solve computational issues. It doesn't affect results, interpretation, nor the prediction. Any interpretation of results and predictions is based on original scale. 
+
+\ 
+
+Antibodies (Scaled, divided by 100):
+```{r, echo=FALSE, message=FALSE, warning=FALSE}
+as.data.frame(dt_A)
+```
+Note: The scaling was done to solve computational issues. It doesn't affect results, interpretation, nor the prediction. Any interpretation of results and predictions is based on original scale. 
+
+\ 
+
+Disease Status:
+```{r, echo=FALSE, message=FALSE, warning=FALSE}
+as.data.frame(dt_D)
+```
+
+\ 
+
+Intercept and Covariates (Age Group, Ever Snap Positive, DPP, Treatment Group):
+```{r, echo=FALSE, message=FALSE, warning=FALSE}
+temp = as.data.frame(dt_X)
+colnames(temp) = c("Intercept", "Age_Group", "Ever_SNAP_Positive", "DPP_Results", "Treatment_Group")
+temp
+```
+
+\ 
+
+## Running MH-within Gibbs 
+
+
+```{r, echo=FALSE, message=FALSE, warning=FALSE}
+#### Log(Full Conditionals) of Parameters 
+
+betaP_FC <- function(x, sigma2p, alphap, D, P, A, X = dt_X){
+  
+  D1 <- apply(D,2,function(x){ifelse(x == 1, 1, 0)})
+  D2 <- apply(D,2,function(x){ifelse(x == 2, 1, 0)})
+  D3 <- apply(D,2,function(x){ifelse(x == 3, 1, 0)})
+  
+  sumterm = sum(dmvnorm(x, mean = rep(0,length(x)), 
+                        sigma = diag(rep(1,length(x))), log = TRUE)) +
+    sum(dnorm(P[,1], log = TRUE)) +
+    sum(dnorm(A[,1], log = TRUE)) +
+    sum(apply(val_multinom(D[,1]),1, function(y){dmultinom(y, 
+                                                           prob = c(0.5,0.3,
+                                                                    0.19,0.01), 
+                                                           log = TRUE)}))
+  for(i in 1:N){
+    for(j in 2:Time){
+      if((i == 18)&(j == 7)) next
+      if((i == 33)&(j == 7)) next
+      if((i == 36)&(j %in% c(5,6,7))) next
+      M <- cbind(P[i,j-1], 
+                 D1[i,j-1]*P[i,j-1], 
+                 D2[i,j-1]*P[i,j-1], 
+                 D3[i,j-1]*P[i,j-1],
+                 if(j==2){0} else{D1[i,j-1]*(P[i,j-1]-P[i,j-2])},
+                 if(j==2){0} else{D2[i,j-1]*(P[i,j-1]-P[i,j-2])},
+                 if(j==2){0} else{D3[i,j-1]*(P[i,j-1]-P[i,j-2])},
+                 if(j==2){0} else{D1[i,j-1]*(A[i,j-1]-A[i,j-2])}, 
+                 if(j==2){0} else{D2[i,j-1]*(A[i,j-1]-A[i,j-2])}, 
+                 if(j==2){0} else{D3[i,j-1]*(A[i,j-1]-A[i,j-2])})
+      etap <- (M %*% x) + (X[i,] %*% alphap)
+      sumterm <- sumterm + dnorm(P[i,j], etap, sigma2p, log = TRUE)
+    }
+  }
+
+  sumterm
+}
+
+sigma2p_FC <- function(x, betaP, alphap, D, P, A, X = dt_X){
+  
+  D1 <- apply(D,2,function(x){ifelse(x == 1, 1, 0)})
+  D2 <- apply(D,2,function(x){ifelse(x == 2, 1, 0)})
+  D3 <- apply(D,2,function(x){ifelse(x == 3, 1, 0)})
+
+  sumterm = sum(dgamma(x, 1, 1,log = TRUE)) +
+    sum(dnorm(P[,1], log = TRUE)) +
+    sum(dnorm(A[,1], log = TRUE)) +
+    sum(apply(val_multinom(D[,1]),1, function(y){dmultinom(y, 
+                                                           prob = c(0.5,0.3,
+                                                                    0.19,0.01), 
+                                                           log = TRUE)}))
+  
+  for(i in 1:N){
+    for(j in 2:Time){
+      if((i == 18)&(j == 7)) next
+      if((i == 33)&(j == 7)) next
+      if((i == 36)&(j %in% c(5,6,7))) next
+      M <- cbind(P[i,j-1], 
+                 D1[i,j-1]*P[i,j-1], 
+                 D2[i,j-1]*P[i,j-1], 
+                 D3[i,j-1]*P[i,j-1],
+                 if(j==2){0} else{D1[i,j-1]*(P[i,j-1]-P[i,j-2])},
+                 if(j==2){0} else{D2[i,j-1]*(P[i,j-1]-P[i,j-2])},
+                 if(j==2){0} else{D3[i,j-1]*(P[i,j-1]-P[i,j-2])},
+                 if(j==2){0} else{D1[i,j-1]*(A[i,j-1]-A[i,j-2])}, 
+                 if(j==2){0} else{D2[i,j-1]*(A[i,j-1]-A[i,j-2])}, 
+                 if(j==2){0} else{D3[i,j-1]*(A[i,j-1]-A[i,j-2])})
+      etap <- (M %*% betaP) + (X[i,] %*% alphap)
+      sumterm <- sumterm + dnorm(P[i,j], etap, x,log = TRUE)
+    }
+  }
+
+  sumterm
+}
+
+
+alphap_FC <- function(x, betaP, sigma2p, D, P, A, X = dt_X){
+  
+  D1 <- apply(D,2,function(x){ifelse(x == 1, 1, 0)})
+  D2 <- apply(D,2,function(x){ifelse(x == 2, 1, 0)})
+  D3 <- apply(D,2,function(x){ifelse(x == 3, 1, 0)})
+
+  sumterm = sum(dmvnorm(x, mean = rep(0,ncol(X)), 
+                        sigma = diag(rep(1,ncol(X))), log = TRUE)) +
+    sum(dnorm(P[,1], log = TRUE)) +
+    sum(dnorm(A[,1], log = TRUE)) +
+    sum(apply(val_multinom(D[,1]),1, function(y){dmultinom(y, 
+                                                           prob = c(0.5,0.3,
+                                                                    0.19,0.01), 
+                                                           log = TRUE)}))
+  for(i in 1:N){
+    for(j in 2:Time){
+      if((i == 18)&(j == 7)) next
+      if((i == 33)&(j == 7)) next
+      if((i == 36)&(j %in% c(5,6,7))) next
+      M <- cbind(P[i,j-1], 
+                 D1[i,j-1]*P[i,j-1], 
+                 D2[i,j-1]*P[i,j-1], 
+                 D3[i,j-1]*P[i,j-1],
+                 if(j==2){0} else{D1[i,j-1]*(P[i,j-1]-P[i,j-2])},
+                 if(j==2){0} else{D2[i,j-1]*(P[i,j-1]-P[i,j-2])},
+                 if(j==2){0} else{D3[i,j-1]*(P[i,j-1]-P[i,j-2])},
+                 if(j==2){0} else{D1[i,j-1]*(A[i,j-1]-A[i,j-2])}, 
+                 if(j==2){0} else{D2[i,j-1]*(A[i,j-1]-A[i,j-2])}, 
+                 if(j==2){0} else{D3[i,j-1]*(A[i,j-1]-A[i,j-2])})
+      etap <- (M %*% betaP) + (X[i,] %*% x)
+      sumterm <- sumterm + dnorm(P[i,j], etap, sigma2p,log = TRUE)
+    }
+  }
+
+  sumterm
+}
+
+
+betaA_FC <- function(x, sigma2A, alphaA, D, P, A, X = dt_X){
+  
+  D1 <- apply(D,2,function(x){ifelse(x == 1, 1, 0)})
+  D2 <- apply(D,2,function(x){ifelse(x == 2, 1, 0)})
+  D3 <- apply(D,2,function(x){ifelse(x == 3, 1, 0)})
+
+  sumterm = sum(dmvnorm(x, mean = rep(0,length(x)), 
+                        sigma = diag(rep(1,length(x))), 
+                        log = TRUE)) +
+    sum(dnorm(P[,1], log = TRUE)) +
+    sum(dnorm(A[,1], log = TRUE)) +
+    sum(apply(val_multinom(D[,1]),1, function(y){dmultinom(y, 
+                                                           prob = c(0.5,0.3,
+                                                                    0.19,0.01), 
+                                                           log = TRUE)}))
+  for(i in 1:N){
+    for(j in 2:Time){
+      if((i == 18)&(j == 7)) next
+      if((i == 33)&(j == 7)) next
+      if((i == 36)&(j %in% c(5,6,7))) next
+      M <- cbind(P[i,j-1], 
+                 A[i,j-1],
+                 if(j==2){0} else{D1[i,j-1]*(P[i,j-1]-P[i,j-2])},
+                 if(j==2){0} else{D2[i,j-1]*(P[i,j-1]-P[i,j-2])},
+                 if(j==2){0} else{D3[i,j-1]*(P[i,j-1]-P[i,j-2])},
+                 if(j==2){0} else{D1[i,j-1]*(A[i,j-1]-A[i,j-2])}, 
+                 if(j==2){0} else{D2[i,j-1]*(A[i,j-1]-A[i,j-2])}, 
+                 if(j==2){0} else{D3[i,j-1]*(A[i,j-1]-A[i,j-2])})
+      etaA <- (M %*% x) + (X[i,] %*% alphaA)
+      sumterm <- sumterm + dnorm(A[i,j], etaA, sigma2A,log = TRUE)
+    }
+  }
+
+  sumterm
+}
+
+
+alphaA_FC <- function(x, sigma2A, betaA, D, P, A, X = dt_X){
+  
+  D1 <- apply(D,2,function(x){ifelse(x == 1, 1, 0)})
+  D2 <- apply(D,2,function(x){ifelse(x == 2, 1, 0)})
+  D3 <- apply(D,2,function(x){ifelse(x == 3, 1, 0)})
+
+  sumterm = sum(dmvnorm(x, mean = rep(0,ncol(X)), 
+                        sigma = diag(rep(1,ncol(X))), 
+                        log = TRUE)) +
+    sum(dnorm(P[,1], log = TRUE)) +
+    sum(dnorm(A[,1], log = TRUE)) +
+    sum(apply(val_multinom(D[,1]),1, function(y){dmultinom(y, 
+                                                           prob = c(0.5,0.3,
+                                                                    0.19,0.01), 
+                                                           log = TRUE)}))
+  for(i in 1:N){
+    for(j in 2:Time){
+      if((i == 18)&(j == 7)) next
+      if((i == 33)&(j == 7)) next
+      if((i == 36)&(j %in% c(5,6,7))) next
+      M <- cbind(P[i,j-1], 
+                 A[i,j-1],
+                 if(j==2){0} else{D1[i,j-1]*(P[i,j-1]-P[i,j-2])},
+                 if(j==2){0} else{D2[i,j-1]*(P[i,j-1]-P[i,j-2])},
+                 if(j==2){0} else{D3[i,j-1]*(P[i,j-1]-P[i,j-2])},
+                 if(j==2){0} else{D1[i,j-1]*(A[i,j-1]-A[i,j-2])}, 
+                 if(j==2){0} else{D2[i,j-1]*(A[i,j-1]-A[i,j-2])}, 
+                 if(j==2){0} else{D3[i,j-1]*(A[i,j-1]-A[i,j-2])})
+      etaA <- (M %*% betaA) + (X[i,] %*% x)
+      sumterm <- sumterm + dnorm(A[i,j], etaA, sigma2A,log = TRUE)
+    }
+  }
+
+  sumterm
+}
+
+
+sigma2A_FC <- function(x, betaA, alphaA, D, P, A, X = dt_X){
+  
+  D1 <- apply(D,2,function(x){ifelse(x == 1, 1, 0)})
+  D2 <- apply(D,2,function(x){ifelse(x == 2, 1, 0)})
+  D3 <- apply(D,2,function(x){ifelse(x == 3, 1, 0)})
+
+  sumterm = sum(dgamma(x, 1, 1,log = TRUE)) +
+    sum(dnorm(P[,1], log = TRUE)) +
+    sum(dnorm(A[,1], log = TRUE)) +
+    sum(apply(val_multinom(D[,1]),1, function(y){dmultinom(y, 
+                                                           prob = c(0.5,0.3,
+                                                                    0.19,0.01), 
+                                                           log = TRUE)}))
+  for(i in 1:N){
+    for(j in 2:Time){
+      if((i == 18)&(j == 7)) next
+      if((i == 33)&(j == 7)) next
+      if((i == 36)&(j %in% c(5,6,7))) next
+      M <- cbind(P[i,j-1], 
+                 A[i,j-1],
+                 if(j==2){0} else{D1[i,j-1]*(P[i,j-1]-P[i,j-2])},
+                 if(j==2){0} else{D2[i,j-1]*(P[i,j-1]-P[i,j-2])},
+                 if(j==2){0} else{D3[i,j-1]*(P[i,j-1]-P[i,j-2])},
+                 if(j==2){0} else{D1[i,j-1]*(A[i,j-1]-A[i,j-2])}, 
+                 if(j==2){0} else{D2[i,j-1]*(A[i,j-1]-A[i,j-2])}, 
+                 if(j==2){0} else{D3[i,j-1]*(A[i,j-1]-A[i,j-2])})
+      etaA <- (M %*% betaA) + (X[i,] %*% alphaA)
+      sumterm <- sumterm + dnorm(A[i,j], etaA, x, log = TRUE)
+    }
+  }
+
+  sumterm
+}
+
+
+betaD1_FC <- function(x, betaD2, betaD3, alphaD, D, P, A, X = dt_X){
+  
+  D1 <- apply(D,2,function(x){ifelse(x == 1, 1, 0)})
+  D2 <- apply(D,2,function(x){ifelse(x == 2, 1, 0)})
+  D3 <- apply(D,2,function(x){ifelse(x == 3, 1, 0)})
+
+  sumterm = sum(dmvnorm(x, mean = rep(0,length(x)), 
+                        sigma = diag(rep(1,length(x))), log = TRUE)) +
+    sum(dnorm(P[,1], log = TRUE)) +
+    sum(dnorm(A[,1], log = TRUE)) +
+    sum(apply(val_multinom(D[,1]),1, function(y){dmultinom(y, 
+                                                           prob = c(0.5,0.3,
+                                                                    0.19,0.01), 
+                                                           log = TRUE)}))
+  for(i in 1:N){
+    for(j in 2:Time){
+      
+      if((i == 18)&(j == 7)) next
+      if((i == 33)&(j == 7)) next
+      if((i == 36)&(j %in% c(5,6,7))) next
+      
+      M1 <- cbind(D1[i,j-1], D1[i,j-1]*P[i,j-1], D1[i,j-1]*A[i,j-1])
+      M2 <- cbind(D2[i,j-1], D2[i,j-1]*P[i,j-1], D2[i,j-1]*A[i,j-1])
+      M3 <- cbind(D3[i,j-1], D3[i,j-1]*P[i,j-1], D3[i,j-1]*A[i,j-1])
+      
+      num1 <- exp((M1 %*% x) + (X[i,] %*% alphaD))
+      den1 <- 1 + exp((M1 %*% x) + (X[i,] %*% alphaD)) + 
+        exp((M2 %*% betaD2) + (X[i,] %*% alphaD)) + 
+        exp((M3 %*% betaD3) + (X[i,] %*% alphaD))
+      piD1 <- num1/den1
+      
+      num2 <- exp((M2 %*% betaD2) + (X[i,] %*% alphaD))
+      den2 <- 1 + exp((M1 %*% x) + (X[i,] %*% alphaD)) + 
+        exp((M2 %*% betaD2) + (X[i,] %*% alphaD)) + 
+        exp((M3 %*% betaD3) + (X[i,] %*% alphaD))
+      piD2 <- num2/den2
+      
+      num3 <- exp((M3 %*% betaD3) + (X[i,] %*% alphaD))
+      den3 <- 1 + exp((M1 %*% x) + (X[i,] %*% alphaD)) + 
+        exp((M2 %*% betaD2) + (X[i,] %*% alphaD)) + 
+        exp((M3 %*% betaD3) + (X[i,] %*% alphaD))
+      piD3 <- num3/den3
+      
+      piD4 <- 1 - piD1 - piD2 - piD3
+      
+      sumterm <- sumterm + dmultinom(val_multinom(D[i,j]), 
+                                     prob = c(piD1,piD2,piD3,piD4), log = TRUE)
+    }
+  }
+
+  sumterm
+}
+
+
+betaD2_FC <- function(x, betaD1, betaD3, alphaD, D, P, A, X = dt_X){
+  
+  D1 <- apply(D,2,function(x){ifelse(x == 1, 1, 0)})
+  D2 <- apply(D,2,function(x){ifelse(x == 2, 1, 0)})
+  D3 <- apply(D,2,function(x){ifelse(x == 3, 1, 0)})
+
+  sumterm = sum(dmvnorm(x, mean = rep(0,length(x)), 
+                        sigma = diag(rep(1,length(x))), log = TRUE)) +
+    sum(dnorm(P[,1], log = TRUE)) +
+    sum(dnorm(A[,1], log = TRUE)) +
+    sum(apply(val_multinom(D[,1]),1, function(y){dmultinom(y, 
+                                                           prob = c(0.5,0.3,
+                                                                    0.19,0.01), 
+                                                           log = TRUE)}))
+  for(i in 1:N){
+    for(j in 2:Time){
+      
+      if((i == 18)&(j == 7)) next
+      if((i == 33)&(j == 7)) next
+      if((i == 36)&(j %in% c(5,6,7))) next
+      
+      M1 <- cbind(D1[i,j-1], D1[i,j-1]*P[i,j-1], D1[i,j-1]*A[i,j-1])
+      M2 <- cbind(D2[i,j-1], D2[i,j-1]*P[i,j-1], D2[i,j-1]*A[i,j-1])
+      M3 <- cbind(D3[i,j-1], D3[i,j-1]*P[i,j-1], D3[i,j-1]*A[i,j-1])
+      
+      num1 <- exp((M1 %*% betaD1) + (X[i,] %*% alphaD))
+      den1 <- 1 + exp((M1 %*% betaD1) + (X[i,] %*% alphaD)) + 
+        exp((M2 %*% x) + (X[i,] %*% alphaD)) + 
+        exp((M3 %*% betaD3) + (X[i,] %*% alphaD))
+      piD1 <- num1/den1
+      
+      num2 <- exp((M2 %*% x) + (X[i,] %*% alphaD))
+      den2 <- 1 + exp((M1 %*% betaD1) + (X[i,] %*% alphaD)) + 
+        exp((M2 %*% x) + (X[i,] %*% alphaD)) + 
+        exp((M3 %*% betaD3) + (X[i,] %*% alphaD))
+      piD2 <- num2/den2
+      
+      num3 <- exp((M3 %*% betaD3) + (X[i,] %*% alphaD))
+      den3 <- 1 + exp((M1 %*% betaD1) + (X[i,] %*% alphaD)) + 
+        exp((M2 %*% x) + (X[i,] %*% alphaD)) + 
+        exp((M3 %*% betaD3) + (X[i,] %*% alphaD))
+      piD3 <- num3/den3
+      
+      piD4 <- 1 - piD1 - piD2 - piD3
+      
+      sumterm <- sumterm + dmultinom(val_multinom(D[i,j]), 
+                                     prob = c(piD1,piD2,piD3,piD4), log = TRUE)
+    }
+  }
+
+  sumterm
+}
+
+
+betaD3_FC <- function(x, betaD1, betaD2, alphaD, D, P, A, X = dt_X){
+  
+  D1 <- apply(D,2,function(x){ifelse(x == 1, 1, 0)})
+  D2 <- apply(D,2,function(x){ifelse(x == 2, 1, 0)})
+  D3 <- apply(D,2,function(x){ifelse(x == 3, 1, 0)})
+
+  sumterm = sum(dmvnorm(x, mean = rep(0,length(x)), 
+                        sigma = diag(rep(1,length(x))), log = TRUE)) +
+    sum(dnorm(P[,1], log = TRUE)) +
+    sum(dnorm(A[,1], log = TRUE)) +
+    sum(apply(val_multinom(D[,1]),1, function(y){dmultinom(y, 
+                                                           prob = c(0.5,0.3,
+                                                                    0.19,0.01), 
+                                                           log = TRUE)}))
+  for(i in 1:N){
+    for(j in 2:Time){
+      
+      if((i == 18)&(j == 7)) next
+      if((i == 33)&(j == 7)) next
+      if((i == 36)&(j %in% c(5,6,7))) next
+      
+      M1 <- cbind(D1[i,j-1], D1[i,j-1]*P[i,j-1], D1[i,j-1]*A[i,j-1])
+      M2 <- cbind(D2[i,j-1], D2[i,j-1]*P[i,j-1], D2[i,j-1]*A[i,j-1])
+      M3 <- cbind(D3[i,j-1], D3[i,j-1]*P[i,j-1], D3[i,j-1]*A[i,j-1])
+      
+      num1 <- exp((M1 %*% betaD1) + (X[i,] %*% alphaD))
+      den1 <- 1 + exp((M1 %*% betaD1) + (X[i,] %*% alphaD)) + 
+        exp((M2 %*% betaD2) + (X[i,] %*% alphaD)) + 
+        exp((M3 %*% x) + (X[i,] %*% alphaD))
+      piD1 <- num1/den1
+      
+      num2 <- exp((M2 %*% betaD2) + (X[i,] %*% alphaD))
+      den2 <- 1 + exp((M1 %*% betaD1) + (X[i,] %*% alphaD)) + 
+        exp((M2 %*% betaD2) + (X[i,] %*% alphaD)) + 
+        exp((M3 %*% x) + (X[i,] %*% alphaD))
+      piD2 <- num2/den2
+      
+      num3 <- exp((M3 %*% x) + (X[i,] %*% alphaD))
+      den3 <- 1 + exp((M1 %*% betaD1) + (X[i,] %*% alphaD)) + 
+        exp((M2 %*% betaD2) + (X[i,] %*% alphaD)) + 
+        exp((M3 %*% x) + (X[i,] %*% alphaD))
+      piD3 <- num3/den3
+      
+      piD4 <- 1 - piD1 - piD2 - piD3
+      
+      sumterm <- sumterm + dmultinom(val_multinom(D[i,j]), 
+                                     prob = c(piD1,piD2,piD3,piD4), log = TRUE)
+    }
+  }
+
+  sumterm
+}
+
+
+alphaD_FC <- function(x, betaD1, betaD2, betaD3, D, P, A, X = dt_X){
+  
+  D1 <- apply(D,2,function(x){ifelse(x == 1, 1, 0)})
+  D2 <- apply(D,2,function(x){ifelse(x == 2, 1, 0)})
+  D3 <- apply(D,2,function(x){ifelse(x == 3, 1, 0)})
+
+  sumterm = sum(dmvnorm(x, mean = rep(0,ncol(X)), 
+                        sigma = diag(rep(1,ncol(X))), log = TRUE)) +
+    sum(dnorm(P[,1], log = TRUE)) +
+    sum(dnorm(A[,1], log = TRUE)) +
+    sum(apply(val_multinom(D[,1]),1, function(y){dmultinom(y, 
+                                                           prob = c(0.5,0.3,
+                                                                    0.19,0.01), 
+                                                           log = TRUE)}))
+  for(i in 1:N){
+    for(j in 2:Time){
+      
+      if((i == 18)&(j == 7)) next
+      if((i == 33)&(j == 7)) next
+      if((i == 36)&(j %in% c(5,6,7))) next
+      
+      M1 <- cbind(D1[i,j-1], D1[i,j-1]*P[i,j-1], D1[i,j-1]*A[i,j-1])
+      M2 <- cbind(D2[i,j-1], D2[i,j-1]*P[i,j-1], D2[i,j-1]*A[i,j-1])
+      M3 <- cbind(D3[i,j-1], D3[i,j-1]*P[i,j-1], D3[i,j-1]*A[i,j-1])
+      
+      num1 <- exp((M1 %*% betaD1) + (X[i,] %*% x))
+      den1 <- 1 + exp((M1 %*% betaD1) + (X[i,] %*% x)) + 
+        exp((M2 %*% betaD2) + (X[i,] %*% x)) + 
+        exp((M3 %*% betaD3) + (X[i,] %*% x))
+      piD1 <- num1/den1
+      
+      num2 <- exp((M2 %*% betaD2) + (X[i,] %*% x))
+      den2 <- 1 + exp((M1 %*% betaD1) + (X[i,] %*% x)) + 
+        exp((M2 %*% betaD2) + (X[i,] %*% x)) + 
+        exp((M3 %*% betaD3) + (X[i,] %*% x))
+      piD2 <- num2/den2
+      
+      num3 <- exp((M3 %*% betaD3) + (X[i,] %*% x))
+      den3 <- 1 + exp((M1 %*% betaD1) + (X[i,] %*% x)) + 
+        exp((M2 %*% betaD2) + (X[i,] %*% x)) + 
+        exp((M3 %*% betaD3) + (X[i,] %*% x))
+      piD3 <- num3/den3
+      
+      piD4 <- 1 - piD1 - piD2 - piD3
+      
+      sumterm <- sumterm + dmultinom(val_multinom(D[i,j]), 
+                                     prob = c(piD1,piD2,piD3,piD4), log = TRUE)
+      
+    }
+  }
+
+  sumterm
+}
+
+
+D_FC <- function(D, betaP, alphap, sigma2p, betaD1, betaD2, 
+                 betaD3, alphaD, P, A, X = dt_X){
+  
+  D1 <- apply(D,2,function(x){ifelse(x == 1, 1, 0)})
+  D2 <- apply(D,2,function(x){ifelse(x == 2, 1, 0)})
+  D3 <- apply(D,2,function(x){ifelse(x == 3, 1, 0)})
+  
+  sumterm = sum(dnorm(P[,1], log = TRUE)) +
+    sum(dnorm(A[,1], log = TRUE)) +
+    sum(apply(val_multinom(D[,1]),1, function(y){dmultinom(y, 
+                                                           prob = c(0.5,0.3,
+                                                                    0.19,0.01), 
+                                                           log = TRUE)}))
+  
+  for(i in 1:N){
+    for(j in 2:Time){
+      
+      if((i == 18)&(j == 7)) next
+      if((i == 33)&(j == 7)) next
+      if((i == 36)&(j %in% c(5,6,7))) next
+      
+      M <- cbind(P[i,j-1], 
+                 D1[i,j-1]*P[i,j-1], 
+                 D2[i,j-1]*P[i,j-1], 
+                 D3[i,j-1]*P[i,j-1],
+                 if(j==2){0} else{D1[i,j-1]*(P[i,j-1]-P[i,j-2])},
+                 if(j==2){0} else{D2[i,j-1]*(P[i,j-1]-P[i,j-2])},
+                 if(j==2){0} else{D3[i,j-1]*(P[i,j-1]-P[i,j-2])},
+                 if(j==2){0} else{D1[i,j-1]*(A[i,j-1]-A[i,j-2])}, 
+                 if(j==2){0} else{D2[i,j-1]*(A[i,j-1]-A[i,j-2])}, 
+                 if(j==2){0} else{D3[i,j-1]*(A[i,j-1]-A[i,j-2])})
+      etap <- (M %*% betaP) + (X[i,] %*% alphap)
+      
+      M1 <- cbind(D1[i,j-1], D1[i,j-1]*P[i,j-1], D1[i,j-1]*A[i,j-1])
+      M2 <- cbind(D2[i,j-1], D2[i,j-1]*P[i,j-1], D2[i,j-1]*A[i,j-1])
+      M3 <- cbind(D3[i,j-1], D3[i,j-1]*P[i,j-1], D3[i,j-1]*A[i,j-1])
+      
+      num1 <- exp((M1 %*% betaD1) + (X[i,] %*% alphaD))
+      den1 <- 1 + exp((M1 %*% betaD1) + (X[i,] %*% alphaD)) + 
+        exp((M2 %*% betaD2) + (X[i,] %*% alphaD)) + 
+        exp((M3 %*% betaD3) + (X[i,] %*% alphaD))
+      piD1 <- num1/den1
+      
+      num2 <- exp((M2 %*% betaD2) + (X[i,] %*% alphaD))
+      den2 <- 1 + exp((M1 %*% betaD1) + (X[i,] %*% alphaD)) + 
+        exp((M2 %*% betaD2) + (X[i,] %*% alphaD)) + 
+        exp((M3 %*% betaD3) + (X[i,] %*% alphaD))
+      piD2 <- num2/den2
+      
+      num3 <- exp((M3 %*% betaD3) + (X[i,] %*% alphaD))
+      den3 <- 1 + exp((M1 %*% betaD1) + (X[i,] %*% alphaD)) + 
+        exp((M2 %*% betaD2) + (X[i,] %*% alphaD)) + 
+        exp((M3 %*% betaD3) + (X[i,] %*% alphaD))
+      piD3 <- num3/den3
+      
+      piD4 <- 1 - piD1 - piD2 - piD3
+      
+      sumterm <- sumterm + dnorm(P[i,j], etap, sigma2p, log = TRUE) + 
+        dmultinom(val_multinom(D[i,j]), prob = c(piD1,piD2,piD3,piD4), log = TRUE)
+    }
+  }
+  sumterm  
+} 
+
+
+P_FC <- function(P, betaP, sigma2p, alphap, D, A, X = dt_X){
+  
+  D1 <- apply(D,2,function(x){ifelse(x == 1, 1, 0)})
+  D2 <- apply(D,2,function(x){ifelse(x == 2, 1, 0)})
+  D3 <- apply(D,2,function(x){ifelse(x == 3, 1, 0)})
+  
+  sumterm = sum(dnorm(P[,1], log = TRUE)) +
+    sum(dnorm(A[,1], log = TRUE)) +
+    sum(apply(val_multinom(D[,1]),1, function(y){dmultinom(y, 
+                                                           prob = c(0.5,0.3,
+                                                                    0.19,0.01), 
+                                                           log = TRUE)}))
+  for(i in 1:N){
+    for(j in 2:Time){
+      
+      if((i == 18)&(j == 7)) next
+      if((i == 33)&(j == 7)) next
+      if((i == 36)&(j %in% c(5,6,7))) next
+      
+      M <- cbind(P[i,j-1], 
+                 D1[i,j-1]*P[i,j-1], 
+                 D2[i,j-1]*P[i,j-1], 
+                 D3[i,j-1]*P[i,j-1],
+                 if(j==2){0} else{D1[i,j-1]*(P[i,j-1]-P[i,j-2])},
+                 if(j==2){0} else{D2[i,j-1]*(P[i,j-1]-P[i,j-2])},
+                 if(j==2){0} else{D3[i,j-1]*(P[i,j-1]-P[i,j-2])},
+                 if(j==2){0} else{D1[i,j-1]*(A[i,j-1]-A[i,j-2])}, 
+                 if(j==2){0} else{D2[i,j-1]*(A[i,j-1]-A[i,j-2])}, 
+                 if(j==2){0} else{D3[i,j-1]*(A[i,j-1]-A[i,j-2])})
+      etap <- (M %*% betaP) + (X[i,] %*% alphap)
+      sumterm <- sumterm + dnorm(P[i,j], etap, sigma2p,log = TRUE)
+    }
+  }
+
+  sumterm
+}
+
+
+A_FC <- function(A, betaA, alphaA, sigma2A, D, P, X = dt_X){
+  
+  D1 <- apply(D,2,function(x){ifelse(x == 1, 1, 0)})
+  D2 <- apply(D,2,function(x){ifelse(x == 2, 1, 0)})
+  D3 <- apply(D,2,function(x){ifelse(x == 3, 1, 0)})
+
+  sumterm = sum(dnorm(P[,1], log = TRUE)) +
+    sum(dnorm(A[,1], log = TRUE)) +
+    sum(apply(val_multinom(D[,1]),1, function(y){dmultinom(y, 
+                                                           prob = c(0.5,0.3,
+                                                                    0.19,0.01), 
+                                                           log = TRUE)}))
+  for(i in 1:N){
+    for(j in 2:Time){
+      
+      if((i == 18)&(j == 7)) next
+      if((i == 33)&(j == 7)) next
+      if((i == 36)&(j %in% c(5,6,7))) next
+      
+      M <- cbind(P[i,j-1], 
+                 A[i,j-1],
+                 if(j==2){0} else{D1[i,j-1]*(P[i,j-1]-P[i,j-2])},
+                 if(j==2){0} else{D2[i,j-1]*(P[i,j-1]-P[i,j-2])},
+                 if(j==2){0} else{D3[i,j-1]*(P[i,j-1]-P[i,j-2])},
+                 if(j==2){0} else{D1[i,j-1]*(A[i,j-1]-A[i,j-2])}, 
+                 if(j==2){0} else{D2[i,j-1]*(A[i,j-1]-A[i,j-2])}, 
+                 if(j==2){0} else{D3[i,j-1]*(A[i,j-1]-A[i,j-2])})
+      etaA <- (M %*% betaA) + (X[i,] %*% alphaA)
+      sumterm <- sumterm + dnorm(A[i,j], etaA, sigma2A, log = TRUE)
+    }
+  }
+
+  sumterm
+}
+
+
+#### Proposal Function, Single MH Updater =======================
+
+r_function <- function(from, sdtuning = 1) {
+  mvrnorm(1, mu=from, Sigma = diag(sdtuning, length(from)))
+}
+
+d_function <- function(from, to, sdtuning = 1) {
+  dmvnorm(to, mean=from, sigma = diag(sdtuning, length(from)), log = TRUE)
+}
+
+dmvnorm_function <- function(from, to, sdtuning = 1) {
+  to = as.vector(to)[-ignore_entries]
+  from = as.vector(from)[-ignore_entries]
+  dmvnorm(to, 
+          mean = from, 
+          sigma = diag(sdtuning, length(from)),
+          log = TRUE)
+}
+
+propose_D <- function(D, missing_ind_D, propose_proportion = 0.1){
+  D_proposed <- D
+  to_propose <- sample(missing_ind_D, 
+                       size = ceiling(propose_proportion*length(missing_ind_D)))
+  proposal <- sample(1:4, size = length(to_propose), replace = TRUE)
+  D_proposed[to_propose] <- proposal
+  D_proposed
+}
+
+draw_D <- function(D, missing_ind_D, propose_proportion = 0.1, ...){
+  
+  D_proposed <- propose_D(D, missing_ind_D, propose_proportion)
+  lpost_current <- D_FC(D, ...)
+  lpost_proposed <-  D_FC(D_proposed, ...)
+  lacc_prob <- lpost_proposed - lpost_current
+  
+  if (is.finite(lacc_prob) && log(runif(1,0,1)) < lacc_prob){
+    return(D_proposed)
+  }
+  return(D)
+}
+
+newpropose_D <- function(D, missing_ind_D, propose_proportion = 0.1){
+  D_proposed <- D
+  to_propose <- sample(missing_ind_D, 
+                       size = ceiling(propose_proportion*length(missing_ind_D)))
+  proposal <- NULL
+  for(i in 1:length(to_propose)){
+    if(D_proposed[to_propose][i] == 1){
+      proposal[i] = which.max(rmultinom(1,1,prob = c(1/2,1/2)))
+    } else if(D_proposed[to_propose][i] == 2){
+      proposal[i] = which.max(rmultinom(1,1,prob = c(1/3,1/3,1/3)))
+    } else if(D_proposed[to_propose][i] == 3){
+      proposal[i] = which.max(rmultinom(1,1,prob = c(0,1/3,1/3,1/3)))
+    } else {proposal[i] = which.max(rmultinom(1,1,prob = c(0,0,1/2,1/2)))} 
+  }
+  D_proposed[to_propose] <- proposal
+  D_proposed
+}
+
+newdraw_D <- function(D, missing_ind_D, propose_proportion = 0.1, ...){
+  D_proposed <- newpropose_D(D, missing_ind_D, propose_proportion)
+  lpost_current <- D_FC(D, ...)
+  lpost_proposed <-  D_FC(D_proposed, ...)
+  lacc_prob <- lpost_proposed - lpost_current
+  
+  if (is.finite(lacc_prob) && log(runif(1,0,1)) < lacc_prob){
+    return(D_proposed)
+  }
+  return(D)
+}
+
+
+propose_A <- function(A, missing_ind_A, propose_proportion = 0.1, sdtuning = 0.1){
+  A_proposed <- A
+  to_propose <- sample(missing_ind_A, 
+                       size = ceiling(propose_proportion*length(missing_ind_A)))
+  proposal <- rnorm(rep(1, length(to_propose)), mean = 0, sd = sdtuning)
+  A_proposed[to_propose] <- proposal
+  A_proposed
+}
+
+draw_A <- function(A, missing_ind_A, propose_proportion = 0.1, sdtuning = 0.1, ...){
+  
+  A_proposed <- propose_A(A, missing_ind_A, propose_proportion, sdtuning)
+  a <- sum(A_FC(A_proposed, ...) - A_FC(A, ...)) + 
+    dmvnorm_function(A_proposed, A) -
+    dmvnorm_function(A, A_proposed)
+  
+  if (is.finite(a) && log(runif(1,0,1)) < a){
+    return(A_proposed)
+  }
+  return(A)
+}
+
+
+propose_P <- function(P, missing_ind_P, propose_proportion = 0.1, sdtuning = 0.1){
+  P_proposed <- P
+  to_propose <- sample(missing_ind_P, 
+                       size = ceiling(propose_proportion*length(missing_ind_P)))
+  proposal <- rnorm(rep(1, length(to_propose)), mean = 0, sd = sdtuning)
+  P_proposed[to_propose] <- proposal
+  P_proposed
+}
+
+draw_P <- function(P, missing_ind_P, propose_proportion = 0.1, sdtuning = 0.1, ...){
+  
+  #browser()
+  P_proposed <- propose_P(P, missing_ind_P, propose_proportion, sdtuning)
+  a <- sum(P_FC(P_proposed, ...) - P_FC(P, ...)) + 
+    dmvnorm_function(P_proposed, P) -
+    dmvnorm_function(P, P_proposed)
+  
+  if (is.finite(a) && log(runif(1,0,1)) < a){
+    return(P_proposed)
+  }
+  return(P)
+}
+
+
+MH_Update <- function(x0, logFC, dfun, rfun, sdtuning = 1, ...){
+  
+  x1 <- rfun(x0, sdtuning = sdtuning)
+  a <- suppressWarnings(sum((logFC(x=x1,...) - logFC(x=x0,...)) + 
+                              dfun(x1, x0) - dfun(x0, x1)))
+  u <- log(runif(1,0,1))
+  if (is.finite(a) && (!is.nan(a)) && (u < a)){
+    return(x1)
+    }
+  return(x0)
+  
+}
+
+
+draw_onebeta <- function(x0, logFC, dfun, rfun, sdtuning = 1, idx = 1, ...){
+  
+  temp <- rfun(x0[idx], sdtuning = sdtuning)
+  x1 <- x0
+  x1[idx] <- temp
+
+  a <- suppressWarnings(sum((logFC(x=x1,...) - logFC(x=x0,...)) + 
+                              dfun(x1, x0) - dfun(x0, x1)))
+  
+  u <- log(runif(1,0,1))
+  if (is.finite(a) && (!is.nan(a)) && (u < a)){
+    return(x1)
+    }
+  return(x0)
+  
+}
+
+  
+```
+
+```{r, echo=FALSE, message=FALSE, warning=FALSE}
+####  MH-Gibbs =======================
+
+MH_Gibbs <- function(n_iter, dataD = dt_D, dataA = dt_A, 
+                     dataP = dt_P, filename = "chain.csv") {
+  
+  # missing indicators
+  missing_ind_D <- which(is.na(dataD))[!(which(is.na(dataD)) %in% ignore_entries)]
+  missing_ind_P <- which(is.na(dataP))[!(which(is.na(dataP)) %in% ignore_entries)]
+  missing_ind_A <- which(is.na(dataA))[!(which(is.na(dataA)) %in% ignore_entries)]
+  
+  # pick initial values
+  betaP_0 = rnorm(10,0,0.1)
+  sigma2p_0 = rgamma(1,100,1000)
+  alphap_0 = rnorm(ncol(dt_X),0,0.1)
+  betaA_0 = rnorm(8,0,0.1)
+  sigma2A_0 = rgamma(1,100,1000)
+  alphaA_0 = rnorm(ncol(dt_X),0,0.1)
+  betaD1_0 = rnorm(3,0,0.1)
+  betaD2_0 = rnorm(3,0,0.1)
+  betaD3_0 = rnorm(3,0,0.1)
+  alphaD_0 = rnorm(ncol(dt_X),0,0.1)
+  D0_for_missing = sample(1:4, 
+                          size = length(missD), 
+                          replace = TRUE)
+  P0_for_missing = rep(0,length(missP))
+  A0_for_missing = rep(0,length(missA))
+  
+  # creating vectors and matrices
+  sigma2p_vec <- sigma2A_vec <- rep(0,n_iter)
+  betaP_mat <- matrix(0, nrow=n_iter, ncol=length(betaP_0))
+  betaA_mat <- matrix(0, nrow=n_iter, ncol=length(betaA_0))
+  betaD1_mat <- matrix(0, nrow=n_iter, ncol=length(betaD1_0))
+  betaD2_mat <- matrix(0, nrow=n_iter, ncol=length(betaD2_0))
+  betaD3_mat <- matrix(0, nrow=n_iter, ncol=length(betaD3_0))
+  alphap_mat <- alphaA_mat <- alphaD_mat <- matrix(0, 
+                                                   nrow=n_iter, 
+                                                   ncol=length(alphap_0))
+  D_mat <- matrix(0, nrow=n_iter, ncol=length(missing_ind_D))
+  P_mat <- matrix(0, nrow=n_iter, ncol=length(missing_ind_P))
+  A_mat <- matrix(0, nrow=n_iter, ncol=length(missing_ind_A))
+  
+  # setting initial
+  D_mat[1,] <- D0_for_missing
+  P_mat[1,] <- P0_for_missing
+  A_mat[1,] <- A0_for_missing
+  betaP_mat[1,] <- betaP_0
+  betaA_mat[1,] <- betaA_0
+  betaD1_mat[1,] <- betaD1_0
+  betaD2_mat[1,] <- betaD2_0
+  betaD3_mat[1,] <- betaD3_0
+  alphap_mat[1,] <- alphap_0
+  alphaA_mat[1,] <- alphaA_0
+  alphaD_mat[1,] <- alphaD_0
+  sigma2p_vec[1] <- sigma2p_0
+  sigma2A_vec[1] <- sigma2A_0
+  
+  ## adding updated (iterated) values to CSV file
+  coef_names <- c(paste0("betaP_", 1:length(betaP_0)), "sigma2p",
+                  paste0("betaA_", 1:length(betaA_0)), "sigma2A",
+                  paste0("betaD1_", 1:length(betaD1_0)),
+                  paste0("betaD2_", 1:length(betaD2_0)),
+                  paste0("betaD3_", 1:length(betaD3_0)),
+                  paste0("alphap_", 1:length(alphap_0)),
+                  paste0("alphaA_", 1:length(alphaA_0)),
+                  paste0("alphaD_", 1:length(alphaD_0)),
+                  paste0(paste0("D_", (1:prod(dim(dt_D)))[missing_ind_D]), 
+                         collapse = ","),
+                  paste0(paste0("P_", (1:prod(dim(dt_P)))[missing_ind_P]), 
+                         collapse = ","),
+                  paste0(paste0("A_", (1:prod(dim(dt_A)))[missing_ind_A]), 
+                         collapse = ","))
+  cat(paste0(coef_names, collapse = ","), file = filename)
+  cat("\n", file = filename, append=TRUE)
+  init <- c(betaP_mat[1,], sigma2p_vec[1], betaA_mat[1,], sigma2A_vec[1], 
+            betaD1_mat[1,], betaD2_mat[1,], betaD3_mat[1,], alphap_mat[1,], 
+            alphaA_mat[1,], alphaD_mat[1,], D_mat[1,], P_mat[1,], A_mat[1,])
+  cat(paste0(init, collapse = ","), file = filename, append=TRUE)
+  cat("\n", file = filename, append=TRUE)
+  
+  D <- dataD; P <- dataP; A <- dataA
+  D[missing_ind_D] <- D0_for_missing
+  P[missing_ind_P] <- P0_for_missing
+  A[missing_ind_A] <- A0_for_missing
+  
+  # loop for update parameters
+  for (it in 2:n_iter) {
+    
+    bp1 <- draw_onebeta(x0 = betaP_mat[it-1,], 
+                       logFC = betaP_FC, 
+                       dfun = d_function, 
+                       rfun = r_function,
+                       sdtuning = 0.1, #previous: 0.05
+                       sigma2p = sigma2p_vec[it-1], 
+                       alphap = alphap_mat[it-1,],
+                       idx = 1, 
+                       D = D,
+                       P = P,
+                       A = A)
+    betaP_mat[it,1] <- bp1[1]
+    
+    
+    bp2 <- draw_onebeta(x0 = betaP_mat[it-1,], 
+                       logFC = betaP_FC, 
+                       dfun = d_function, 
+                       rfun = r_function,
+                       sdtuning = 4.5, #previous: 0.035
+                       sigma2p = sigma2p_vec[it-1], 
+                       alphap = alphap_mat[it-1,],
+                       idx = 2, 
+                       D = D,
+                       P = P,
+                       A = A)
+    betaP_mat[it,2] <- bp2[2]
+    
+    
+    bp3 <- draw_onebeta(x0 = betaP_mat[it-1,], 
+                       logFC = betaP_FC, 
+                       dfun = d_function, 
+                       rfun = r_function,
+                       sdtuning = 0.1, #previous: 0.035
+                       sigma2p = sigma2p_vec[it-1], 
+                       alphap = alphap_mat[it-1,],
+                       idx = 3, 
+                       D = D,
+                       P = P,
+                       A = A)
+    betaP_mat[it,3] <- bp3[3]
+    
+    
+    bp4 <- draw_onebeta(x0 = betaP_mat[it-1,], 
+                       logFC = betaP_FC, 
+                       dfun = d_function, 
+                       rfun = r_function,
+                       sdtuning = 4.95, #previous: 0.035
+                       sigma2p = sigma2p_vec[it-1], 
+                       alphap = alphap_mat[it-1,],
+                       idx = 4, 
+                       D = D,
+                       P = P,
+                       A = A)
+    betaP_mat[it,4] <- bp4[4]
+    
+    
+    
+    bp5 <- draw_onebeta(x0 = betaP_mat[it-1,], 
+                       logFC = betaP_FC, 
+                       dfun = d_function, 
+                       rfun = r_function,
+                       sdtuning = 4.5, #previous: 0.035
+                       sigma2p = sigma2p_vec[it-1], 
+                       alphap = alphap_mat[it-1,],
+                       idx = 5, 
+                       D = D,
+                       P = P,
+                       A = A)
+    betaP_mat[it,5] <- bp5[5]
+    
+    
+    
+    bp6 <- draw_onebeta(x0 = betaP_mat[it-1,], 
+                       logFC = betaP_FC, 
+                       dfun = d_function, 
+                       rfun = r_function,
+                       sdtuning = 0.05, #previous: 0.035
+                       sigma2p = sigma2p_vec[it-1], 
+                       alphap = alphap_mat[it-1,],
+                       idx = 6, 
+                       D = D,
+                       P = P,
+                       A = A)
+    betaP_mat[it,6] <- bp6[6]
+    
+    
+    
+    bp7 <- draw_onebeta(x0 = betaP_mat[it-1,], 
+                       logFC = betaP_FC, 
+                       dfun = d_function, 
+                       rfun = r_function,
+                       sdtuning = 4.5, #previous: 0.035
+                       sigma2p = sigma2p_vec[it-1], 
+                       alphap = alphap_mat[it-1,],
+                       idx = 7, 
+                       D = D,
+                       P = P,
+                       A = A)
+    betaP_mat[it,7] <- bp7[7]
+    
+    
+    
+    bp8 <- draw_onebeta(x0 = betaP_mat[it-1,], 
+                       logFC = betaP_FC, 
+                       dfun = d_function, 
+                       rfun = r_function,
+                       sdtuning = 0.01, #previous: 0.035
+                       sigma2p = sigma2p_vec[it-1], 
+                       alphap = alphap_mat[it-1,],
+                       idx = 8, 
+                       D = D,
+                       P = P,
+                       A = A)
+    betaP_mat[it,8] <- bp8[8]
+    
+    
+    
+    bp9 <- draw_onebeta(x0 = betaP_mat[it-1,], 
+                       logFC = betaP_FC, 
+                       dfun = d_function, 
+                       rfun = r_function,
+                       sdtuning = 0.01, #previous: 0.035
+                       sigma2p = sigma2p_vec[it-1], 
+                       alphap = alphap_mat[it-1,],
+                       idx = 9, 
+                       D = D,
+                       P = P,
+                       A = A)
+    betaP_mat[it,9] <- bp9[9]
+    
+    
+    
+    bp10 <- draw_onebeta(x0 = betaP_mat[it-1,], 
+                       logFC = betaP_FC, 
+                       dfun = d_function, 
+                       rfun = r_function,
+                       sdtuning = 0.15, #previous: 0.035
+                       sigma2p = sigma2p_vec[it-1], 
+                       alphap = alphap_mat[it-1,],
+                       idx = 10, 
+                       D = D,
+                       P = P,
+                       A = A)
+    betaP_mat[it,10] <- bp10[10]
+    
+    
+    
+    sigma2p_result <- MH_Update(x0 = sigma2p_vec[it-1], 
+                              logFC = sigma2p_FC, 
+                              dfun = d_function, 
+                              rfun = r_function,
+                              sdtuning = 0.000001, #previous: 0.00001
+                              betaP = betaP_mat[it-1,],
+                              alphap = alphap_mat[it-1,],
+                              D = D,
+                              P = P,
+                              A = A)
+    sigma2p_vec[it] <- sigma2p_result
+    
+    
+    ba1 <- draw_onebeta(x0 = betaA_mat[it-1,], 
+                       logFC = betaA_FC, 
+                       dfun = d_function, 
+                       rfun = r_function,
+                       sdtuning = 0.25, #previous: 0.035
+                       sigma2A = sigma2A_vec[it-1], 
+                       alphaA = alphaA_mat[it-1,],
+                       idx = 1, 
+                       D = D,
+                       P = P,
+                       A = A)
+    betaA_mat[it,1] <- ba1[1]
+    
+    
+    
+    ba2 <- draw_onebeta(x0 = betaA_mat[it-1,], 
+                       logFC = betaA_FC, 
+                       dfun = d_function, 
+                       rfun = r_function,
+                       sdtuning = 0.005, #previous: 0.035
+                       sigma2A = sigma2A_vec[it-1], 
+                       alphaA = alphaA_mat[it-1,],
+                       idx = 2, 
+                       D = D,
+                       P = P,
+                       A = A)
+    betaA_mat[it,2] <- ba2[2]
+    
+    
+    
+    ba3 <- draw_onebeta(x0 = betaA_mat[it-1,], 
+                       logFC = betaA_FC, 
+                       dfun = d_function, 
+                       rfun = r_function,
+                       sdtuning = 3, #previous: 0.035
+                       sigma2A = sigma2A_vec[it-1], 
+                       alphaA = alphaA_mat[it-1,],
+                       idx = 3, 
+                       D = D,
+                       P = P,
+                       A = A)
+    betaA_mat[it,3] <- ba3[3]
+    
+    
+    
+    ba4 <- draw_onebeta(x0 = betaA_mat[it-1,], 
+                       logFC = betaA_FC, 
+                       dfun = d_function, 
+                       rfun = r_function,
+                       sdtuning = 0.25, #previous: 0.035
+                       sigma2A = sigma2A_vec[it-1], 
+                       alphaA = alphaA_mat[it-1,],
+                       idx = 4, 
+                       D = D,
+                       P = P,
+                       A = A)
+    betaA_mat[it,4] <- ba4[4]
+    
+    
+    
+    ba5 <- draw_onebeta(x0 = betaA_mat[it-1,], 
+                       logFC = betaA_FC, 
+                       dfun = d_function, 
+                       rfun = r_function,
+                       sdtuning = 2.5, #previous: 0.035
+                       sigma2A = sigma2A_vec[it-1], 
+                       alphaA = alphaA_mat[it-1,],
+                       idx = 5, 
+                       D = D,
+                       P = P,
+                       A = A)
+    betaA_mat[it,5] <- ba5[5]
+    
+    
+    
+    ba6 <- draw_onebeta(x0 = betaA_mat[it-1,], 
+                       logFC = betaA_FC, 
+                       dfun = d_function, 
+                       rfun = r_function,
+                       sdtuning = 0.05, #previous: 0.035
+                       sigma2A = sigma2A_vec[it-1], 
+                       alphaA = alphaA_mat[it-1,],
+                       idx = 6, 
+                       D = D,
+                       P = P,
+                       A = A)
+    betaA_mat[it,6] <- ba6[6]
+    
+    
+    
+    ba7 <- draw_onebeta(x0 = betaA_mat[it-1,], 
+                       logFC = betaA_FC, 
+                       dfun = d_function, 
+                       rfun = r_function,
+                       sdtuning = 0.05, #previous: 0.035
+                       sigma2A = sigma2A_vec[it-1], 
+                       alphaA = alphaA_mat[it-1,],
+                       idx = 7, 
+                       D = D,
+                       P = P,
+                       A = A)
+    betaA_mat[it,7] <- ba7[7]
+    
+    
+    
+    ba8 <- draw_onebeta(x0 = betaA_mat[it-1,], 
+                       logFC = betaA_FC, 
+                       dfun = d_function, 
+                       rfun = r_function,
+                       sdtuning = 0.65, #previous: 0.035
+                       sigma2A = sigma2A_vec[it-1], 
+                       alphaA = alphaA_mat[it-1,],
+                       idx = 8, 
+                       D = D,
+                       P = P,
+                       A = A)
+    betaA_mat[it,8] <- ba8[8]
+    
+    
+    
+    sigma2A_result <- MH_Update(x0 = sigma2A_vec[it-1], 
+                              logFC = sigma2A_FC, 
+                              dfun = d_function, 
+                              rfun = r_function,
+                              sdtuning = 0.000022, #previous: 0.000045
+                              betaA =  betaA_mat[it-1,], 
+                              alphaA = alphaA_mat[it-1,],
+                              D = D,
+                              P = P,
+                              A = A)
+    sigma2A_vec[it] <- sigma2A_result
+    
+    
+    
+    betaD1_result <- MH_Update(x0 = betaD1_mat[it-1,], 
+                               logFC = betaD1_FC, 
+                               dfun = d_function, 
+                               rfun = r_function,
+                               sdtuning = 0.5, #previous: 0.6
+                               alphaD = alphaD_mat[it-1,],
+                               betaD2 = betaD2_mat[it-1,],
+                               betaD3 = betaD3_mat[it-1,],
+                               D = D,
+                               P = P,
+                               A = A)
+    betaD1_mat[it,] <- betaD1_result
+    
+    
+    
+    betaD2_result <- MH_Update(x0 = betaD2_mat[it-1,], 
+                               logFC = betaD2_FC, 
+                               dfun = d_function, 
+                               rfun = r_function,
+                               sdtuning = 0.5, #previous: 0.45
+                               betaD1 = betaD1_mat[it-1,],
+                               betaD3 = betaD3_mat[it-1,],
+                               alphaD = alphaD_mat[it-1,],
+                               D = D,
+                               P = P,
+                               A = A)
+    betaD2_mat[it,] <- betaD2_result
+    
+    
+    
+    betaD3_result <- MH_Update(x0 = betaD3_mat[it-1,], 
+                               logFC = betaD3_FC, 
+                               dfun = d_function, 
+                               rfun = r_function,
+                               sdtuning = 1.7, #previous: 1.7 
+                               betaD1 = betaD1_mat[it-1,],
+                               betaD2 = betaD2_mat[it-1,],
+                               alphaD = alphaD_mat[it-1,],
+                               D = D,
+                               P = P,
+                               A = A)
+    betaD3_mat[it,] <- betaD3_result
+    
+    
+    alphap_result <- MH_Update(x0 = alphap_mat[it-1,], 
+                              logFC = alphap_FC, 
+                              dfun = d_function, 
+                              rfun = r_function,
+                              sdtuning = 0.000008, #previous: 0.000035
+                              sigma2p = sigma2p_vec[it-1], 
+                              betaP = betaP_mat[it-1,],
+                              D = D,
+                              P = P,
+                              A = A)
+    alphap_mat[it,] = alphap_result
+    
+    
+    alphaA_result <- MH_Update(x0 = alphaA_mat[it-1,], 
+                              logFC = alphaA_FC, 
+                              dfun = d_function, 
+                              rfun = r_function,
+                              sdtuning = 0.00003, #previous: 0.000035
+                              sigma2A = sigma2A_vec[it-1], 
+                              betaA =  betaA_mat[it-1,], 
+                              D = D,
+                              P = P,
+                              A = A)
+    alphaA_mat[it,] <- alphaA_result
+    
+
+    
+    alphaD_result <- MH_Update(x0 = alphaD_mat[it-1,], 
+                               logFC = alphaD_FC, 
+                               dfun = d_function, 
+                               rfun = r_function,
+                               sdtuning = 0.6, #previous: 0.275
+                               betaD1 = betaD1_mat[it-1,],
+                               betaD2 = betaD2_mat[it-1,],
+                               betaD3 = betaD3_mat[it-1,],
+                               D = D,
+                               P = P,
+                               A = A)
+    alphaD_mat[it,] <- alphaD_result
+    
+    
+    D_result <- draw_D(D = D, 
+                       missing_ind_D = missing_ind_D, 
+                       propose_proportion = 0.05, # 0.05
+                       betaP = betaP_mat[it-1,], 
+                       alphap = alphap_mat[it-1,],
+                       sigma2p = sigma2p_vec[it-1], 
+                       betaD1 = betaD1_mat[it-1,], 
+                       betaD2 = betaD2_mat[it-1,], 
+                       betaD3 = betaD3_mat[it-1,], 
+                       alphaD = alphaD_mat[it-1,],
+                       P = P,
+                       A = A)
+    D_mat[it,] <- D_result[missing_ind_D]
+    D[missing_ind_D] <- D_result[missing_ind_D]
+    
+    
+    P_result <- draw_P(P = P, 
+                     missing_ind_P = missing_ind_P,
+                     propose_proportion = 0.30, # 0.15
+                     sdtuning = 1e-06, #previous: 1e-07
+                     betaP = betaP_mat[it-1,],
+                     alphap = alphap_mat[it-1,],
+                     sigma2p = sigma2p_vec[it-1],
+                     D = D,
+                     A = A)
+    P_mat[it,] <- P_result[missing_ind_P]
+    P[missing_ind_P] <- P_result[missing_ind_P]
+    
+    
+    A_result <- draw_A(A = A, 
+                    missing_ind_A = missing_ind_A,
+                    propose_proportion = 0.30, # 0.15
+                    sdtuning = 1e-06, #previous: 1e-07  
+                    betaA =  betaA_mat[it-1,],
+                    alphaA = alphaA_mat[it-1,],
+                    sigma2A = sigma2A_vec[it-1],
+                    D = D,
+                    P = P)
+    A_mat[it,] <- A_result[missing_ind_A]
+    A[missing_ind_A] <- A_result[missing_ind_A]
+    
+    
+    x <- c(betaP_mat[it,], sigma2p_vec[it], betaA_mat[it,], sigma2A_vec[it], 
+            betaD1_mat[it,], betaD2_mat[it,], betaD3_mat[it,], alphap_mat[it,], 
+            alphaA_mat[it,], alphaD_mat[it,], D_mat[it,], P_mat[it,], A_mat[it,])
+    cat(paste0(x, collapse = ","), file = filename, append=TRUE)
+    cat("\n", file = filename, append=TRUE) 
+      
+  }
+}
+```
+
+```{r, eval=FALSE, echo=FALSE, message=FALSE, warning=FALSE}
+#### Implementation of MH-Gibbs Algorithm =====================================
+
+#time1 <- Sys.time() 
+#MH_Gibbs(n_iter = 25000, filename = "chain1.csv")
+#MH_Gibbs(n_iter = 25000, filename = "chain2.csv")
+#MH_Gibbs(n_iter = 25000, filename = "chain3.csv")
+#time2 <- Sys.time() 
+#(runtime <- time2-time1)
+```
+
+The results presented in this section are based on running three chains of length 25,000 each. Normal prior distributions were assumed for all the parameters corresponding with the design matrices $M^{P}$, $M^{A}$, $M^{D(k)}$, and $X$. Gamma prior distributions were used for the variances. In terms of proposal functions, independent and multivariate normal proposal functions were used as part of the sampler for most of the parameters as well as for the missing values associated with pathogen load and antibody levels. In the case of the disease status, the proposal function employed was the sample function from R, since it allows for exploration of the space. 
+
+\ 
+
+### Summary of MCMC Results
+
+```{r, echo=FALSE, message=FALSE, warning=FALSE}
+# Analyzing Results
+# Summary and Plots
+getsummary <- function(data, BurPer = 0){
+  
+  vmean <- vlower <- vupper <- vsd <- NULL
+  pos <- neg <- eq0 <- NULL
+  
+  for(i in 1:ncol(data)){
+    param <- data[-(1:BurPer),i]
+    vmean[i] <- mean(param)
+    vlower[i] <- quantile(param, 0.025)
+    vupper[i] <- quantile(param, 0.975)
+    vsd[i] <- sd(param)
+    pos[i] <- sum(1*(param > 0))/length(param)
+    neg[i] <- sum(1*(param < 0))/length(param)
+    eq0[i] <- sum(1*(param == 0))/length(param)
+  }
+    
+  df <- data.frame(Parameter = colnames(data),
+             Post.Mean = vmean,
+             Lower95 = vlower,
+             Upper95 = vupper,
+             Post.SD = vsd,
+             Accept_Rate = round(1 - rejectionRate(data),4),
+             Pgreat0 = pos,
+             Pless0 = neg,
+             Pequal0 = eq0)
+  rownames(df) <- NULL
+  df
+}
+
+BurPer <- 2000
+results_list <- as.mcmc.list(lapply(1:3, 
+                                    function(x){as.mcmc(read.csv(paste0("chain", 
+                                                                        x, 
+                                                                        ".csv"),
+                                                                 skip = BurPer))}))
+combined_list <- combine.MCMC(results_list)
+options(digits = 4)
+(mcmc_summary = getsummary(data = combined_list, BurPer = BurPer))
+```
+
+### Interpretation 
+
+Even though all parameters included in the model requires an interpretation, this section will be focused in the interpretation of those parameters that showed moderate to strong evidence of statistical association. Here are some examples:
+
+- $\beta_{P}^{(6)}$: Conditional interaction effect on pathogen load of being in disease status 2 with the difference in parasitemia in the immediate two time points. This effect has a posterior mean of -0.8736 with 95% Cr-I	[-1.11,	-0.6468].  
+
+- $\beta_{A}^{(2)}$: Conditional effect of antibody levels from previous time point with that in next time point. This effect has a posterior mean of 0.8976 with 95% Cr-I	[0.7931, 1.008]. 
+
+- $\beta_{A}^{(6)}$: Conditional interaction effect on pathogen load of being in disease status 1 with the difference in antibody levels in the immediate two time points. This effect has a posterior mean of -0.3924 with 95% Cr-I	[-0.5912,	-0.1977]. 
+
+- $\beta_{D1}^{(1)}$: Conditional effect of disease status 1 from previous time point in the probability of remain in disease status 1 in the next time point. This effect has a posterior mean of 1.862 with 95% Cr-I	[1.443, 2.285]. 
+
+- $\beta_{D2}^{(1)}$: Conditional effect of disease status 2 from previous time point in the probability of remain in disease status 2 in the next time point. This effect has a posterior mean of 1.741 with 95% Cr-I	[1.255, 2.243]. 
+
+- $\alpha_{A}^{(3)}$: Main effect of SNAP results, which is testing for any type of co-infection, on antibody levels. This effect has a posterior mean of 0.01412 with 95% Cr-I	[0.00087, 0.02667].  
+
+
+\ 
+
+### Trace Plots and Convergence Diagnostic {.tabset}
+
+#### Hide
+
+\ 
+
+#### Gelman Rubin Diagnostics
+
+```{r, echo=FALSE, message=FALSE, warning=FALSE}
+gelman.diag(results_list, multivariate = FALSE)
+```
+\
+
+#### Trace Plots
+
+```{r, echo=FALSE, message=FALSE, warning=FALSE}
+par(mfrow=c(2,2))
+traceplot(results_list)
+```
+
+Based on Gelman-Rubin Diagnostics, it looks like the parameters in the model as well as latent variables (the estimated missing values) are showing some level of convergence. There are some of the potential scale reduction factor $\hat{R}_c$ values that are greater than the rule of thumbs of 1.2, but running longer iterations could fix the issue. Since current running time of the MCMC sampler in R software takes several hours, to run no more than 30,000 iterations, the current R code will be converted into Julia code in order to produce longer chains and improve the timing and convergence criteria. On the other hand, further tuning could be done to improve the shape and mixing of the trace and density plots. 
+
+The next step of the project is to make some predictions based on hypothetical scenarios. 
+
+\ 
+
+## Predictions {.tabset}
+
+By using the results from the MCMC sampler as well as the model specification in previous section, posterior predictive distributions will be determined. As an application, let us assume that we have $n^* = 4$ subjects to be considered, but only the information from the first two points in time is available. The goal is to predict the pathogen load, antibody levels and disease status for additional points in time (from TP3 to TP7). In order to determine this posterior predictive distributions, we first draw a random sample from the posterior distributions of each parameter and then we generate values for the new time points based on the model specification. This process is repeated several times (i.e. 1000 or more simulations) and desired plots are then obtained. For pathogen load and antibodies, we have plotted their trajectories over time for each of the new subjects, as well as table with the marginal probabilities of being in particular disease states at the predicted times.   
+
+In a consultation with our collaborators, we have learned that disease patterns for dogs are probably more apparent with six months difference between time points. So, by considering this we can be able to recommend to a veterinarian something along the lines of "You should measure these immunological values for the dog every 3 or 6 months to predict the future change in clinical status". Only using two measurements 3 months apart might not let a pattern become clear yet. This means, that it is always good to keep the biological meaning and the application in mind. 
+             
+```{r, echo=FALSE, message=FALSE, warning=FALSE}
+# Use examples from data set, to make predictions
+# Most important IDs: 761 (will be predicting missing data), 769, 772, and 775
+
+#### DATA ===========================================================
+dog_ids <- leish$ID 
+
+dt_P <- as.matrix(leish[,c("PCR_Load_TP1","PCR_Load_TP2", 
+                           "PCR_Load_TP3", "PCR_Load_TP4",
+                           "PCR_Load_TP5", "PCR_Load_TP6",
+                           "PCR_Load_TP7")])
+dt_P[missP] <- ifelse(mcmc_summary$Post.Mean[118:137] < 0, 0,
+                      mcmc_summary$Post.Mean[118:137]*generalmaxP)
+
+
+dt_D <- as.matrix(leish[,c("DStatus_TP1","DStatus_TP2", 
+                           "DStatus_TP3", "DStatus_TP4",
+                           "DStatus_TP5", "DStatus_TP6",
+                           "DStatus_TP7")])
+dt_D[missD] <- round(mcmc_summary$Post.Mean[45:117])
+
+dt_A <- as.matrix(leish[,c("SLA.ELISA.OD.ratio_TP1",
+                           "SLA.ELISA.OD.ratio_TP2", 
+                           "SLA.ELISA.OD.ratio_TP3", 
+                           "SLA.ELISA.OD.ratio_TP4",
+                           "SLA.ELISA.OD.ratio_TP5",
+                           "SLA.ELISA.OD.ratio_TP6",
+                           "SLA.ELISA.OD.ratio_TP7")])
+dt_A[missA] <- ifelse(mcmc_summary$Post.Mean[118:137] < 0, 0,
+                      mcmc_summary$Post.Mean[118:137]*generalmaxA)
+
+dt_X <- cbind(1, leish$Age_group, 
+              leish$Ever.SNAP.Positive,
+              leish$DPP_Enroll/generalmaxDPP,
+              leish$treatment_group)
+
+#### MCMC Results ==========================================================
+
+# Posteriors
+results <- combine.mcmc(results_list)
+
+#### Posterior Predictive Distributions =======================================
+
+nsim = 1000
+time_pred = 7
+
+P_s1 = P_s2 = P_s3 = P_s4 = matrix(data = NA, nrow = nsim, ncol = time_pred)
+A_s1 = A_s2 = A_s3 = A_s4 = matrix(data = NA, nrow = nsim, ncol = time_pred)
+D_s1 = D_s2 = D_s3 = D_s4 = matrix(data = NA, nrow = nsim, ncol = time_pred)
+
+P_s1[,1:2] <- cbind(rep(dt_P[which(dog_ids =="761"),1], nsim)/generalmaxP, 
+                   rep(dt_P[which(dog_ids =="761"),2], nsim)/generalmaxP)
+P_s2[,1:2] <- cbind(rep(dt_P[which(dog_ids =="772"),1], nsim)/generalmaxP,
+                  rep(dt_P[which(dog_ids =="772"),2], nsim)/generalmaxP)
+P_s3[,1:2] <- cbind(rep(dt_P[which(dog_ids =="769"),1], nsim)/generalmaxP,
+                  rep(dt_P[which(dog_ids =="769"),2], nsim)/generalmaxP)
+P_s4[,1:2] <- cbind(rep(dt_P[which(dog_ids =="775"),1], nsim)/generalmaxP,
+                  rep(dt_P[which(dog_ids =="775"),2], nsim)/generalmaxP)
+
+A_s1[,1:2] <- cbind(rep(dt_A[which(dog_ids =="761"),1], nsim)/generalmaxA, 
+                   rep(dt_A[which(dog_ids =="761"),2], nsim)/generalmaxA)
+A_s2[,1:2] <- cbind(rep(dt_A[which(dog_ids =="772"),1], nsim)/generalmaxA,
+                  rep(dt_A[which(dog_ids =="772"),2], nsim)/generalmaxA)
+A_s3[,1:2] <- cbind(rep(dt_A[which(dog_ids =="769"),1], nsim)/generalmaxA,
+                  rep(dt_A[which(dog_ids =="769"),2], nsim)/generalmaxA)
+A_s4[,1:2] <- cbind(rep(dt_A[which(dog_ids =="775"),1], nsim)/generalmaxA,
+                  rep(dt_A[which(dog_ids =="775"),2], nsim)/generalmaxA)
+
+D_s1[,1:2] <- cbind(rep(dt_D[which(dog_ids =="761"),1], nsim), 
+                   rep(dt_D[which(dog_ids =="761"),2], nsim))
+D_s2[,1:2] <- cbind(rep(dt_D[which(dog_ids =="772"),1], nsim),
+                  rep(dt_D[which(dog_ids =="772"),2], nsim))
+D_s3[,1:2] <- cbind(rep(dt_D[which(dog_ids =="769"),1], nsim),
+                  rep(dt_D[which(dog_ids =="769"),2], nsim))
+D_s4[,1:2] <- cbind(rep(dt_D[which(dog_ids =="775"),1], nsim),
+                  rep(dt_D[which(dog_ids =="775"),2], nsim))
+
+X = dt_X[c(which(dog_ids =="761"), 
+           which(dog_ids =="772"),
+           which(dog_ids =="769"),
+           which(dog_ids =="775")),]
+
+# predict
+for(t in 3:time_pred){
+
+    for(s in 1:nsim){
+      random_param <- apply(results, 2, function(x){sample(x,1)})
+      
+      Data <- data.frame(P = c(P_s1[s,t-1],P_s2[s,t-1],P_s3[s,t-1],P_s4[s,t-1]),
+                         A = c(A_s1[s,t-1],A_s2[s,t-1],A_s3[s,t-1],A_s4[s,t-1]),
+                         D1 = ifelse(c(D_s1[s,t-1],
+                                       D_s2[s,t-1],
+                                       D_s3[s,t-1],
+                                       D_s4[s,t-1]) == 1,1,0),
+                         D2 = ifelse(c(D_s1[s,t-1],
+                                       D_s2[s,t-1],
+                                       D_s3[s,t-1],
+                                       D_s4[s,t-1]) == 2,1,0),
+                         D3 = ifelse(c(D_s1[s,t-1],
+                                       D_s2[s,t-1],
+                                       D_s3[s,t-1],
+                                       D_s4[s,t-1]) == 3,1,0),
+                         D1diffP = c(ifelse(D_s1[s,t-1] == 1,1,0)*(P_s1[s,t-1]-P_s1[s,t-2]), 
+                                     ifelse(D_s2[s,t-1]== 1,1,0)*(P_s2[s,t-1]-P_s2[s,t-2]),
+                                     ifelse(D_s3[s,t-1]== 1,1,0)*(P_s3[s,t-1]-P_s3[s,t-2]),
+                                     ifelse(D_s4[s,t-1]== 1,1,0)*(P_s4[s,t-1]-P_s4[s,t-2])),
+                         D2diffP = c(ifelse(D_s1[s,t-1] == 2,1,0)*(P_s1[s,t-1]-P_s1[s,t-2]), 
+                                     ifelse(D_s2[s,t-1]== 2,1,0)*(P_s2[s,t-1]-P_s2[s,t-2]),
+                                     ifelse(D_s3[s,t-1]== 2,1,0)*(P_s3[s,t-1]-P_s3[s,t-2]),
+                                     ifelse(D_s4[s,t-1]== 2,1,0)*(P_s4[s,t-1]-P_s4[s,t-2])),
+                         D3diffP = c(ifelse(D_s1[s,t-1] == 3,1,0)*(P_s1[s,t-1]-P_s1[s,t-2]), 
+                                     ifelse(D_s2[s,t-1]== 3,1,0)*(P_s2[s,t-1]-P_s2[s,t-2]),
+                                     ifelse(D_s3[s,t-1]== 3,1,0)*(P_s3[s,t-1]-P_s3[s,t-2]),
+                                     ifelse(D_s4[s,t-1]== 3,1,0)*(P_s4[s,t-1]-P_s4[s,t-2])),
+                         D1diffA = c(ifelse(D_s1[s,t-1] == 1,1,0)*(A_s1[s,t-1]-A_s1[s,t-2]), 
+                                     ifelse(D_s2[s,t-1]== 1,1,0)*(A_s2[s,t-1]-A_s2[s,t-2]),
+                                     ifelse(D_s3[s,t-1]== 1,1,0)*(A_s3[s,t-1]-A_s3[s,t-2]),
+                                     ifelse(D_s4[s,t-1]== 1,1,0)*(A_s4[s,t-1]-A_s4[s,t-2])),
+                         D2diffA = c(ifelse(D_s1[s,t-1] == 2,1,0)*(A_s1[s,t-1]-A_s1[s,t-2]), 
+                                     ifelse(D_s2[s,t-1]== 2,1,0)*(A_s2[s,t-1]-A_s2[s,t-2]),
+                                     ifelse(D_s3[s,t-1]== 2,1,0)*(A_s3[s,t-1]-A_s3[s,t-2]),
+                                     ifelse(D_s4[s,t-1]== 2,1,0)*(A_s4[s,t-1]-A_s4[s,t-2])),
+                         D3diffA = c(ifelse(D_s1[s,t-1] == 3,1,0)*(A_s1[s,t-1]-A_s1[s,t-2]), 
+                                     ifelse(D_s2[s,t-1]== 3,1,0)*(A_s2[s,t-1]-A_s2[s,t-2]),
+                                     ifelse(D_s3[s,t-1]== 3,1,0)*(A_s3[s,t-1]-A_s3[s,t-2]),
+                                     ifelse(D_s4[s,t-1]== 3,1,0)*(A_s4[s,t-1]-A_s4[s,t-2])))
+      Data$subject <- rep(1:4, each = 1)  
+      
+      # Create model matrices
+      X1 <- with(Data, cbind(P, D1*P, D2*P, D3*P, D1diffP, D2diffP, D3diffP, 
+                             D1diffA, D2diffA, D3diffA))
+      X2 <- with(Data, cbind(P, A, D1diffP, D2diffP, D3diffP, 
+                             D1diffA, D2diffA, D3diffA))
+      X3 <- cbind(Data$D1, Data$D1*Data$P, Data$D1*Data$P)
+      X4 <- cbind(Data$D2, Data$D2*Data$P, Data$D2*Data$P)
+      X5 <- cbind(Data$D3, Data$D3*Data$P, Data$D3*Data$P)
+      
+      M <- model.matrix(~ as.factor(Data$subject) - 1)
+      idx <- t(apply(M, 2, function(X){c(min(which(X == 1)), 
+                                         max(which(X == 1)))}))
+      idx <- data.frame(start_idx = idx[,1], stop_idx = idx[,2])
+      
+      # pathogen load
+      pmean = (X1[idx[,2],] %*% as.numeric(random_param[1:10])) +
+        (X[idx[,2],] %*% as.numeric(random_param[30:34])) 
+      pvar = as.numeric(random_param[11])
+      P_s1[s,t] <- rnorm(1, mean = pmean[1,1], sd = sqrt(pvar))
+      P_s2[s,t] <- rnorm(1, mean = pmean[2,1], sd = sqrt(pvar))
+      P_s3[s,t] <- rnorm(1, mean = pmean[3,1], sd = sqrt(pvar))
+      P_s4[s,t] <- rnorm(1, mean = pmean[4,1], sd = sqrt(pvar))
+      
+      # antibodies
+      amean = (X2[idx[,2],] %*% as.numeric(random_param[12:19])) +
+        (X[idx[,2],] %*% as.numeric(random_param[35:39])) 
+      avar = as.numeric(random_param[20])
+      A_s1[s,t] <- rnorm(1, mean = amean[1,1], sd = sqrt(avar))
+      A_s2[s,t] <- rnorm(1, mean = amean[2,1], sd = sqrt(avar))
+      A_s3[s,t] <- rnorm(1, mean = amean[3,1], sd = sqrt(avar))
+      A_s4[s,t] <- rnorm(1, mean = amean[4,1], sd = sqrt(avar))
+      
+      # predicted prob and disease status
+      num1 = exp((X3[idx[,2],] %*% as.numeric(random_param[21:23])) +
+                   (X[idx[,2],] %*% as.numeric(random_param[30:34])))
+      
+      num2 = exp((X4[idx[,2],] %*% as.numeric(random_param[24:26])) +
+                   (X[idx[,2],] %*% as.numeric(random_param[30:34])))
+      
+      num3 = exp((X5[idx[,2],] %*% as.numeric(random_param[27:29])) +
+                   (X[idx[,2],] %*% as.numeric(random_param[30:34])))
+      
+      den = 1 + num1 + num2 + num3
+      
+      pi1 <- num1/den
+      pi2 <- num2/den
+      pi3 <- num3/den 
+      pi4 <- 1 - num1/den - num2/den - num3/den
+      
+      
+      D_s1[s,t] <- which.max(rmultinom(1,1,prob = c(pi1[1,1],
+                                                    pi2[1,1],
+                                                    pi3[1,1],
+                                                    pi4[1,1])))
+                      
+      D_s2[s,t] <- which.max(rmultinom(1,1,prob = c(pi1[2,1],
+                                                    pi2[2,1],
+                                                    pi3[2,1],
+                                                    pi4[2,1])))
+      
+      D_s3[s,t] <- which.max(rmultinom(1,1,prob = c(pi1[3,1],
+                                                    pi2[3,1],
+                                                    pi3[3,1],
+                                                    pi4[3,1])))
+      
+      D_s4[s,t] <- which.max(rmultinom(1,1,prob = c(pi1[4,1],
+                                                    pi2[4,1],
+                                                    pi3[4,1],
+                                                    pi4[4,1])))
+      
+    }
+}
+
+#### Plot =============================================================
+
+
+pred.plot <- function(subj = 1, 
+                      rescaled = TRUE,
+                      pred_time = 7){
+  
+  if(subj == 1){
+    pathogen = P_s1
+    antibodies = A_s1
+    Dstatus = D_s1
+  } else if (subj == 2){
+    pathogen = P_s2
+    antibodies = A_s2
+    Dstatus = D_s2
+  } else if(subj == 3){
+    pathogen = P_s3
+    antibodies = A_s3
+    Dstatus = D_s3
+  } else if(subj == 4){
+    pathogen = P_s4
+    antibodies = A_s4
+    Dstatus = D_s4
+  } else {cat("Error: No valid subject")}
+  
+  
+  if(rescaled == TRUE){
+    pathogen = pathogen*generalmaxP
+    antibodies = antibodies*generalmaxA
+  } 
+  
+  if(subj == 1) {
+    id = 761
+  } else if(subj == 2){
+    id = 772
+  } else if(subj == 3){
+    id = 769
+  } else if(subj == 4){
+    id = 775
+  } else {cat("Error: No valid subject")}
+  
+  pathogen <- ifelse(pathogen < 0, 0, pathogen)
+  antibodies <- ifelse(antibodies < 0, 0, antibodies)
+  
+  lowerp80 = apply(pathogen, 2, function(x) quantile(x,0.1))
+  upperp80 = apply(pathogen, 2, function(x) quantile(x,0.9))
+  
+  lowera80 = apply(antibodies, 2, function(x) quantile(x,0.1))
+  uppera80 = apply(antibodies, 2, function(x) quantile(x,0.9))
+  
+  lowerd80 = apply(Dstatus, 2, function(x) quantile(x,0.1))
+  upperd80 = apply(Dstatus, 2, function(x) quantile(x,0.9))
+  
+  
+  lowerp95 = apply(pathogen, 2, function(x) quantile(x,0.025))
+  upperp95 = apply(pathogen, 2, function(x) quantile(x,0.975))
+  
+  lowera95 = apply(antibodies, 2, function(x) quantile(x,0.025))
+  uppera95 = apply(antibodies, 2, function(x) quantile(x,0.975))
+  
+  lowerd95 = apply(Dstatus, 2, function(x) quantile(x,0.025))
+  upperd95 = apply(Dstatus, 2, function(x) quantile(x,0.975))
+  
+  
+  par(mfrow=c(1,1))
+  plot(1:pred_time, pathogen[1,], 
+       xlab = "Time Point",
+       ylab = "Pathogen Load",
+       main = paste0("Predicted Pathogen Load for Subject ", subj),
+       col = "darkgray",
+       type = "l",
+       ylim = c(0,100000),
+       panel.first = ggbg("gray92"))
+  for(i in 2:nrow(pathogen)){
+      lines(1:pred_time, pathogen[i,], col = "darkgray")
+  }
+  lines(1:pred_time, lowerp80, col = "black", lwd = 3, lty = 2)
+  lines(1:pred_time, upperp80, col = "black", lwd = 3, lty = 2)
+  lines(1:pred_time, lowerp95, col = "royalblue3", lwd = 3, lty = 2)
+  lines(1:pred_time, upperp95, col = "royalblue3", lwd = 3, lty = 2)
+  lines(1:pred_time, dt_P[which(dog_ids==id),], col = "maroon",lwd = 3, 
+        lty=1, type="b")
+  lines(1:pred_time, 
+        apply(pathogen,2,function(x)mean(x)),
+        col = "red",
+        lwd = 3)
+  grid(NULL, NULL, col = "white")
+  legend("topleft", legend=c("Mean", "Observed", 
+                             "80% CI Bounds", "95% CI Bounds"), 
+       lty = c(1,1,2,2), lwd = c(3,3,3,3), col = c("red", "maroon", 
+                                                   "black", "royalblue3"),
+       inset = 0.02, cex = 0.85, seg.len=3.5, pch = c(NA,19,NA,NA))
+  
+
+  plot(1:pred_time, antibodies[1,], 
+       xlab = "Time Point",
+       ylab = "Antibody Levels",
+       main = paste0("Predicted Antibody Levels for Subject ", subj),
+       col = "darkgray",
+       type = "l",
+       ylim = c(0,25),
+       panel.first = ggbg("gray92"))
+  for(i in 2:nrow(antibodies)){
+      lines(1:pred_time, antibodies[i,], col = "darkgray")
+  }
+  lines(1:pred_time, lowera80, col = "black", lwd = 3, lty = 2)
+  lines(1:pred_time, uppera80, col = "black", lwd = 3, lty = 2)
+  lines(1:pred_time, lowera95, col = "royalblue3", lwd = 3, lty = 2)
+  lines(1:pred_time, uppera95, col = "royalblue3", lwd = 3, lty = 2)
+  lines(1:pred_time, dt_A[which(dog_ids==id),], col = "forestgreen",lwd = 3, 
+        lty=1, type="b")
+  lines(1:pred_time, 
+        apply(antibodies,2,function(x)mean(x)),
+        col = "darkgreen",
+        lwd = 3)
+  grid(NULL, NULL, col = "white")
+  legend("topleft", legend=c("Mean", "Observed", 
+                             "80% CI Bounds", "95% CI Bounds"), 
+       lty = c(1,1,2,2), lwd = c(3,3,3,3), col = c("darkgreen", "forestgreen", 
+                                                   "black", "royalblue3"),
+       inset = 0.02, cex = 0.85, seg.len=3.5, pch = c(NA,19,NA,NA))
+  
+
+  
+  df <- matrix(data = 0, 4, pred_time)
+  if(Dstatus[1,1]==1) {
+    df[,1] = c(1,0,0,0)
+    } else if(Dstatus[1,1]==2) {
+      df[,1] = c(0,1,0,0)
+      } else if(Dstatus[1,1]==3) {
+          df[,1] = c(0,0,1,0)
+          } else {df[,1] = c(0,0,0,1)}
+  
+  if(Dstatus[2,1]==1) {
+    df[,2] = c(1,0,0,0)
+    } else if(Dstatus[2,1]==2) {
+      df[,2] = c(0,1,0,0)
+      } else if(Dstatus[2,1]==3) {
+          df[,2] = c(0,0,1,0)
+          } else {df[,2] = c(0,0,0,1)}
+  
+  for(i in 3:pred_time){
+    df[,i] <- table(Dstatus[,i])/nsim
+  }
+  
+  colnames(df) <- paste0("TP", 1:7)
+  rownames(df) <- paste0("DS = ", 1:4)
+ 
+  kable(df, "html", booktabs = T,
+        caption = "Marginal probabilities of disease status (DS) at each time point") %>%
+  kable_styling(latex_options = c("striped"), position = "center",
+                full_width = F)
+  
+  plot(1:pred_time, df[1,], 
+       xlab = "Time Point",
+       ylab = "Probability",
+       main = paste0("Marginal probabilities of disease status (DS) for Subject ", subj),
+       col = "darkorange",
+       type = "l",
+       ylim = c(0,1),
+       panel.first = ggbg("gray92"),
+       lwd = 2, lty = 1)
+  grid(NULL, NULL, col = "white")
+  lines(1:pred_time, df[2,], col = "darkorange1", lwd = 2.5, lty = 2)
+  lines(1:pred_time, df[3,], col = "darkorange2", lwd = 2.5, lty = 3)
+  lines(1:pred_time, df[4,], col = "darkorange3", lwd = 2.5, lty = 4)
+  legend(0.95,0.95, legend=c("DS=1","DS=2","DS=3","DS=4"), 
+       lty = c(1,2,3,4), lwd = 2.5, col = c("darkorange", "darkorange1", 
+                                          "darkorange2", "darkorange3"),
+       inset = 0.02, cex = 0.9, seg.len=2)
+  
+}
+```
+
+\ 
+
+New Data:
+```{r, echo=FALSE, message=FALSE, warning=FALSE}
+pat = c(P_s1[1,1], P_s2[1,1], P_s3[1,1], P_s4[1,1], 
+        P_s1[1,2], P_s2[1,2], P_s3[1,2], P_s4[1,2])
+ant = c(A_s1[1,1], A_s2[1,1], A_s3[1,1], A_s4[1,1], 
+        A_s1[1,2], A_s2[1,2], A_s3[1,2], A_s4[1,2])
+dis = c(D_s1[1,1], D_s2[1,1], D_s3[1,1], D_s4[1,1],
+        D_s1[1,2], D_s2[1,2], D_s3[1,2], D_s4[1,2])
+xdat = X
+df1 = cbind(data.frame(rep(1:2,each=4), rep(1:4,2),pat,ant,dis),xdat)
+colnames(df1) <- c("Time Point", "New Subject", "Pathogen Load", "Antibodies", 
+                  "Disease Status", "Intercept", "Age Group", "Ever Snap Positive", 
+                  "DPP", "Treatment Group")
+df1
+```
+
+\ 
+
+### Hide
+
+\ 
+
+### Subject 1
+```{r, echo=FALSE, message=FALSE, warning=FALSE, fig.asp=1.3}
+pred.plot(subj = 1)
+```
+
+\ 
+
+### Subject 2
+
+```{r, echo=FALSE, message=FALSE, warning=FALSE, fig.asp=1.3}
+pred.plot(subj = 2)
+```
+
+\ 
+
+### Subject 3
+
+```{r, echo=FALSE, message=FALSE, warning=FALSE, fig.asp=1.3}
+pred.plot(subj = 3)
+```
+
+\ 
+
+### Subject 4
+
+```{r, echo=FALSE, message=FALSE, warning=FALSE, fig.asp=1.3}
+pred.plot(subj = 4)
+```
+
+
+
+\ 
+
+\ 
+
+\ 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

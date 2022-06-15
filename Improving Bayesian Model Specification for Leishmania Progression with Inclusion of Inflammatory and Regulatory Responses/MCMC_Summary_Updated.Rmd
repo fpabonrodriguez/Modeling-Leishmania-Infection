@@ -1,0 +1,191 @@
+---
+title: "Supplementary Document: MCMC Summary"
+subtitle: "Improving Bayesian Model Specification of Leishmania Progression with Inclusion of Inflammatory and Regulatory Responses"
+author: "Felix M. Pabon-Rodriguez, Grant D. Brown, Breanna M. Scorza, and Christine A. Petersen"
+date: ''
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+# Loading libraries
+options(repos="https://cran.rstudio.com")
+install_load <- function(pkg){
+  new.pkg <- pkg[!(pkg %in% installed.packages()[, "Package"])]
+  if (length(new.pkg))
+    install.packages(new.pkg, dependencies = TRUE)
+  sapply(pkg, require, character.only = TRUE)
+}
+
+my_packages <- c("readxl", "dplyr", "coda", "ggplot2",
+                 "lattice", "bayesplot", "BayesPostEst", "ggmcmc", 
+                 "RCurl", "truncnorm", "kableExtra", "mvtnorm", "rlist", 
+                 "extraDistr", "msm", "tmvtnorm", "runjags", "plotrix",
+                 "lubridate", "ggpubr", "stringr", "nimble",
+                 "igraph", "parallel", "doParallel", "MCMCvis")
+invisible(install_load(my_packages))
+
+
+# Results
+results_file <- readRDS("results_fit.rds")
+results_mcmc <- as.mcmc.list(lapply(1:3, function(x){as.mcmc(results_file[[x]])}))
+combined_list <- combine.MCMC(results_mcmc)
+options(digits = 4)
+```
+
+```{r, echo=FALSE}
+
+getsummary <- function(data, BurPer = 0){
+  
+  vmean <- vlower <- vupper <- vsd <- NULL
+  pos <- neg <- vmedian <- strong <- NULL
+  
+  for(i in 1:ncol(data)){
+    param <- data[-(1:BurPer),i]
+    vmean[i] <- mean(param)
+    vmedian[i] <- median(param)
+    vlower[i] <- quantile(param, 0.025)
+    vupper[i] <- quantile(param, 0.975)
+    vsd[i] <- sd(param)
+    pos[i] <- sum(1*(param > 0))/length(param)
+    neg[i] <- sum(1*(param < 0))/length(param)
+    #eq0[i] <- sum(1*(param == 0))/length(param)
+    strong[i] <- ifelse((pos[i] > 0.70)||(neg[i] > 0.70), "*", "")
+  }
+    
+  df <- data.frame(Parameter = colnames(data),
+             Post.Mean = vmean,
+             Post.Median = vmedian,
+             Post.SD = vsd,
+             Lower95 = vlower,
+             Upper95 = vupper,
+             #Accept.Rate = round(1 - rejectionRate(data),4),
+             P.great.0 = pos,
+             P.less.0 = neg,
+             Evidence = strong)
+  rownames(df) <- NULL
+  df
+}
+```
+
+**Pathogen Load**
+
+```{r, echo=FALSE}
+
+clnamesP <- c(colnames(combined_list[,grepl("betaP",colnames(combined_list))]),
+             colnames(combined_list[,grepl("alphaP",colnames(combined_list))]))
+
+dfP <- getsummary(data = combined_list[,clnamesP])
+
+kbl(dfP, booktabs = T, longtable = T) %>%
+kable_styling(latex_options = "striped")
+```
+
+\newpage
+
+**Antibody Levels**
+
+```{r, echo=FALSE}
+
+clnamesA <- c(colnames(combined_list[,grepl("betaA",colnames(combined_list))]),
+             colnames(combined_list[,grepl("alphaA",colnames(combined_list))]))
+
+dfA <- getsummary(data = combined_list[,clnamesA])
+
+kbl(dfA, booktabs = T, longtable = T) %>%
+kable_styling(latex_options = "striped")
+```
+
+\newpage
+
+**Disease Status**
+
+```{r, echo=FALSE}
+
+clnamesD <- c(colnames(combined_list[,grepl("betaD1",colnames(combined_list))]),
+             colnames(combined_list[,grepl("betaD2",colnames(combined_list))]),
+             colnames(combined_list[,grepl("betaD3",colnames(combined_list))]),
+             colnames(combined_list[,grepl("alphaD",colnames(combined_list))]))
+
+dfD <- getsummary(data = combined_list[,clnamesD])
+
+kbl(dfD, booktabs = T, longtable = T) %>%
+kable_styling(latex_options = "striped")
+```
+
+\newpage
+
+**Inflammatory Responses**
+
+```{r, echo=FALSE}
+
+clnamesI <- c(colnames(combined_list[,grepl("betaI1",colnames(combined_list))]),
+             colnames(combined_list[,grepl("betaI2",colnames(combined_list))]),
+             colnames(combined_list[,grepl("betaI3",colnames(combined_list))]),
+             colnames(combined_list[,grepl("alphaI1",colnames(combined_list))]),
+             colnames(combined_list[,grepl("alphaI2",colnames(combined_list))]),
+             colnames(combined_list[,grepl("alphaI3",colnames(combined_list))]))
+
+dfI <- getsummary(data = combined_list[,clnamesI])
+
+kbl(dfI, booktabs = T, longtable = T) %>%
+kable_styling(latex_options = "striped")
+```
+
+\newpage
+
+**Regulatory Responses**
+
+```{r, echo=FALSE}
+
+clnamesR <- c(colnames(combined_list[,grepl("betaR1",colnames(combined_list))]),
+             colnames(combined_list[,grepl("betaR2",colnames(combined_list))]),
+             colnames(combined_list[,grepl("betaR3",colnames(combined_list))]),
+             colnames(combined_list[,grepl("alphaR1",colnames(combined_list))]),
+             colnames(combined_list[,grepl("alphaR2",colnames(combined_list))]),
+             colnames(combined_list[,grepl("alphaR3",colnames(combined_list))]))
+
+dfR <- getsummary(data = combined_list[,clnamesR])
+
+kbl(dfR, booktabs = T, longtable = T) %>%
+kable_styling(latex_options = "striped")
+```
+
+\newpage
+
+**Standard Deviations and Covariance Matrix**
+
+```{r, echo=FALSE}
+
+clnamesSD <- c("sigmaP", "sigmaA",
+              colnames(combined_list[,grepl("SigmaIR",colnames(combined_list))]))
+
+dfSD <- getsummary(data = combined_list[,clnamesSD])
+
+kbl(dfSD, booktabs = T, longtable = T) %>%
+kable_styling(latex_options = "striped")
+```
+
+\newpage
+
+**Moving-Average Parameters and Standard Deviations**
+
+```{r, echo=FALSE}
+
+clnamesMA <- c(colnames(combined_list[,grepl("wP",colnames(combined_list))]),
+             colnames(combined_list[,grepl("wA",colnames(combined_list))]),
+             colnames(combined_list[,grepl("wD",colnames(combined_list))]),
+             colnames(combined_list[,grepl("wIR",colnames(combined_list))]),
+             colnames(combined_list[,grepl("thetaP",colnames(combined_list))]),
+             colnames(combined_list[,grepl("thetaA",colnames(combined_list))]),
+             colnames(combined_list[,grepl("thetaD",colnames(combined_list))]),
+             colnames(combined_list[,grepl("thetaIR",colnames(combined_list))]),
+             colnames(combined_list[,grepl("Sigma.wIR",colnames(combined_list))]),
+             "sigma.wP", "sigma.wA","sigma.wD")
+
+dfMA <- getsummary(data = combined_list[,clnamesMA])
+
+kbl(dfMA, booktabs = T, longtable = T) %>%
+kable_styling(latex_options = "striped")
+```

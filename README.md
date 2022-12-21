@@ -5,6 +5,6 @@ Project Summary: The immune system is a complex network which involves organs, c
 
 Note: This folder repository contains supplemental materials for the following two manuscripts: 
 
-1. "Bayesian Hierarchical Model for Immune Responses toLeishmania-tick borne Co-Infection Study". Felix Pabon-Rodriguez, Grant Brown, Breanna M. Scorza, and Christine Petersen.
+1. "Bayesian Hierarchical Model for Immune Responses to Leishmania - a tick borne Co-Infection Study". Felix Pabon-Rodriguez, Grant Brown, Breanna M. Scorza, and Christine Petersen.
 2. "Within-Host Bayesian Modeling of Leishmania Progression considering Inflammatory and Regulatory Responses". Felix Pabon-Rodriguez, Grant Brown, Breanna M. Scorza, and Christine Petersen.
 

@@ -1,6 +1,6 @@
 ---
 title: "Supplementary Document: MCMC Summary"
-subtitle: "Within-Host Bayesian Modeling of Leishmania Progression considering Inflammatory and Regulatory Responses"
+subtitle: "Within-Host Bayesian Joint Modeling of Longitudinal and Time-to-Event Data of Leishmania Infection"
 author: "Felix M. Pabon-Rodriguez, Grant D. Brown, Breanna M. Scorza, and Christine A. Petersen"
 date: ''
 output: pdf_document

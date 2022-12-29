@@ -1,8 +1,8 @@
 ########################################################################
 ### Felix Pabon-Rodriguez
 ### R Code (NIMBLE) for Paper 2 
-### Within-Host Bayesian Modeling of Leishmania Progression 
-###   considering Inflammatory and Regulatory Responses
+### Within-Host Bayesian Joint Modeling of Longitudinal and 
+### Time-to-Event Data of Leishmania Infection
 ########################################################################
 
 ########################################################################

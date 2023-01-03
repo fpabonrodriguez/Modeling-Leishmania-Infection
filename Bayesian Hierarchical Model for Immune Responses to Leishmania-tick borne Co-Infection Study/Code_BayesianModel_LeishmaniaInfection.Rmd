@@ -1867,7 +1867,7 @@ getsummary <- function(data, BurPer = 0){
   df
 }
 
-BurPer <- 2000
+BurPer <- 5000
 results_list <- as.mcmc.list(lapply(1:3, 
                                     function(x){as.mcmc(read.csv(paste0("chain", 
                                                                         x, 

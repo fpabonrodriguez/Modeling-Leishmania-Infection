@@ -45,6 +45,7 @@ library(msm)
 library(tmvtnorm)
 library(runjags)
 library(plotrix)
+library(MCMCvis)
 
 # use deparse and substitute to get the name of a function argument
 getname <- function(xobj) {deparse(substitute(xobj))}
@@ -1868,16 +1869,27 @@ getsummary <- function(data, BurPer = 0){
 }
 
 BurPer <- 5000
-results_list <- as.mcmc.list(lapply(1:3, 
-                                    function(x){as.mcmc(read.csv(paste0("chain", 
-                                                                        x, 
-                                                                        ".csv"),
-                                                                 skip = BurPer))}))
+#results_list <- as.mcmc.list(lapply(1:3, 
+#                                    function(x){as.mcmc(read.csv(paste0("chain", 
+#                                                                        x, 
+#                                                                        ".csv"),
+#                                                                 skip = BurPer))}))
+#combined_list <- combine.MCMC(results_list)
+
+c1 <- as.mcmc(read.csv(paste0("chain1.csv")))
+c2 <- as.mcmc(read.csv(paste0("chain2.csv")))
+c3 <- as.mcmc(read.csv(paste0("chain3.csv")))
+
+x1 <- window(c1,start = BurPer+1,dim(c1)[1])
+x2 <- window(c2,start = BurPer+1,dim(c1)[1])
+x3 <- window(c3,start = BurPer+1,dim(c1)[1])
+
+results_list <- as.mcmc.list(list(x1,x2,x3))
 combined_list <- combine.MCMC(results_list)
 options(digits = 4)
 (mcmc_summary = getsummary(data = combined_list, BurPer = BurPer))
 ```
-
+ 
 \ 
 
 ### Trace Plots and Convergence Diagnostic {.tabset}
@@ -2261,27 +2273,28 @@ pred.plot <- function(subj = 1,
   plot(1:pred_time, df[1,], 
        xlab = "Time Point",
        ylab = "Probability",
-       main = paste0("Marginal probabilities of disease status (DS) for Subject ", subj),
-       col = "darkorange",
-       type = "l",
+       main = paste0("Marginal probabilities of disease status (D) for Subject ", subj),
+       col = "cadetblue",
+       type = "b",
        ylim = c(0,1),
        panel.first = ggbg("gray92"),
        lwd = 2, lty = 1)
   grid(NULL, NULL, col = "white")
-  lines(1:pred_time, df[2,], col = "darkorange1", lwd = 2.5, lty = 2)
-  lines(1:pred_time, df[3,], col = "darkorange2", lwd = 2.5, lty = 3)
-  lines(1:pred_time, df[4,], col = "darkorange3", lwd = 2.5, lty = 4)
-  legend(0.95,0.95, legend=c("DS=1","DS=2","DS=3","DS=4"), 
-       lty = c(1,2,3,4), lwd = 2.5, col = c("darkorange", "darkorange1", 
-                                          "darkorange2", "darkorange3"),
-       inset = 0.02, cex = 0.9, seg.len=2)
+  lines(1:pred_time, df[1,], col = "cadetblue", lwd = 2.5, lty = 1, type = "b", pch = 18)
+  lines(1:pred_time, df[2,], col = "cornflowerblue", lwd = 2.5, lty = 1, type = "b", pch = 18)
+  lines(1:pred_time, df[3,], col = "chocolate", lwd = 2.5, lty = 1, type = "b", pch = 17)
+  lines(1:pred_time, df[4,], col = "darkred", lwd = 2.5, lty = 1, type = "b", pch = 16)
+  legend(0.95,0.95, legend=c("D=1","D=2","D=3","D=4"), 
+       lty = c(1,1,1,1), lwd = 2.5, col = c("cadetblue", "cornflowerblue", 
+                                          "chocolate", "darkred"),
+       inset = 0.02, cex = 0.9, seg.len=2, pch = c(19:16))
   
 }
 ```
 
 \ 
 
-New Data:
+Data (4 subjects within dataset):
 ```{r, echo=FALSE, message=FALSE, warning=FALSE}
 pat = c(P_s1[1,1], P_s2[1,1], P_s3[1,1], P_s4[1,1], 
         P_s1[1,2], P_s2[1,2], P_s3[1,2], P_s4[1,2])

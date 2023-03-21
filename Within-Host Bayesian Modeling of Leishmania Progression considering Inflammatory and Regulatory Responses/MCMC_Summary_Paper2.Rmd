@@ -1,5 +1,5 @@
 ---
-title: "Supplementary Document: MCMC Summary"
+title: "Supplementary Document: MCMC Summary and Diagnostics"
 subtitle: "Within-Host Bayesian Joint Modeling of Longitudinal and Time-to-Event Data of Leishmania Infection"
 author: "Felix M. Pabon-Rodriguez, Grant D. Brown, Breanna M. Scorza, and Christine A. Petersen"
 date: ''
@@ -23,7 +23,7 @@ my_packages <- c("readxl", "dplyr", "coda", "ggplot2",
                  "RCurl", "truncnorm", "kableExtra", "mvtnorm", "rlist", 
                  "extraDistr", "msm", "tmvtnorm", "runjags", "plotrix",
                  "lubridate", "ggpubr", "stringr", "nimble",
-                 "igraph", "parallel", "doParallel", "MCMCvis")
+                 "igraph", "parallel", "doParallel", "MCMCvis", "LaplacesDemon")
 invisible(install_load(my_packages))
 
 
@@ -185,3 +185,60 @@ dfSurv <- getsummary(data = combined_list[,clnamesSurv])
 kbl(dfSurv, booktabs = T, longtable = T) %>%
 kable_styling(latex_options = "striped")
 ```
+
+\newpage
+
+**MCMC Diagnostics 1.** The following R output provides the Gelman-Rubin diagnostic and traceplots for the model parameters considering the $3$ full MCMC chains ($20,000$ iterations each) after $5,000$ iterations were discarded as burn-in. The Rhat value shown in the density plots (right side) represent the point estimate for the Gelman-Rubin diagnostic. The value $1.1$ is used as a threshold, as explained in the main text. Therefore, we say that a factor of $1.1$ or below indicates that the parameter has reached a level of convergence, which was achieved by all parameters in the model. 
+
+```{r, echo=FALSE}
+parm.interest <- c("betaP", "alphaP", "sigmaP", "betaA", "alphaA", "sigmaA", 
+                     "betaD2", "betaD3", "alphaD2", "alphaD3",
+                     "betaI1", "betaI2", "betaI3", "betaR1", "betaR2", "betaR3", 
+                     "alphaI1", "alphaI2", "alphaI3", "alphaR1", "alphaR2", 
+                     "alphaR3", "SigmaIR", "thetaP", "thetaA", "thetaIR",
+                     "assoc","gammaS", "shape", "scale")
+MCMCtrace(results_mcmc, 
+          params = parm.interest,
+          ISB = TRUE,
+          pdf = FALSE,
+          Rhat = TRUE)
+```
+
+
+\newpage
+
+**MCMC Diagnostics 2.** We computed the Monte-Carlo Standard Error (MCSE), which is a measure of the precision of the posterior distribution obtained from a MCMC algorithm. The purpose of MCSE is to provide a measure of the accuracy of the estimate of the posterior distribution, which is the distribution of the parameters of interest after taking into account the data and prior information. MCSE is calculated by estimating the standard deviation of the MCMC samples of the posterior distribution, which provides a measure of the variability in the posterior estimates due to the Monte Carlo sampling process. This value is then divided by the square root of the effective sample size (ESS), which is the number of independent samples that the MCMC algorithm generates. For the parameters in the model, we obtained MCSE values between $0.00017$ and $0.07442$, with mean of $0.00447$ and median of $0.00261$.
+
+```{r, echo=FALSE}
+getsummary2 <- function(data, BurPer = 0, ll){
+  
+  vmean <- MCSE <- NULL
+  
+  for(i in 1:ll){
+    Param <- data[-(1:BurPer),i]
+    MCSE[i] <- LaplacesDemon::MCSE(Param)
+  }
+    
+  df <- data.frame(Parameter = colnames(data),
+             MCSE = MCSE)
+  rownames(df) <- NULL
+  df
+}
+
+int.param <- c(colnames(results_mcmc[[1]])[grepl(parm.interest[1], colnames(results_mcmc[[1]]))])
+for(i in 1:length(parm.interest)){
+  int.param <- c(int.param, 
+                 colnames(results_mcmc[[1]])[grepl(parm.interest[i], 
+                                                   colnames(results_mcmc[[1]]))])
+}
+
+MCSE_summary = getsummary2(data = combined_list[,int.param], BurPer = 0, ll = length(int.param))
+kbl(MCSE_summary, booktabs = T, longtable = T) %>%
+kable_styling(latex_options = c("hold_position","striped"))
+```
+
+
+
+
+
+

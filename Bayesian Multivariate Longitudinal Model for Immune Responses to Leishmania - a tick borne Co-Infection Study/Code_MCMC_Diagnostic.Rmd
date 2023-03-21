@@ -1,0 +1,98 @@
+---
+title: "**Supplemental Material 2: MCMC Diagnostics**"
+subtitle: 'Bayesian Multivariate Longitudinal Model for Immune Responses to Leishmania - a Tick Borne Coinfection Study'
+author: 'Felix M. Pabon-Rodriguez, Grant D. Brown, Breanna M. Scorza, Christine A. Petersen'
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+# Loading libraries
+library(readxl)
+library(dplyr)
+library(coda) 
+library(rjags)
+library(MASS)
+library(ggplot2)
+library(R2jags)
+library(lattice)
+library(bayesplot)
+library(BayesPostEst)
+library(ggmcmc)
+library(RCurl)
+library(truncnorm)
+library(kableExtra)
+library(mvtnorm)
+library(rlist)
+library(extraDistr)
+library(msm)
+library(tmvtnorm)
+library(runjags)
+library(plotrix)
+library(MCMCvis)
+library(LaplacesDemon)
+```
+
+**MCMC Diagnostics 1.** The following R output provides the Gelman-Rubin diagnostic and traceplots for the model parameters considering the $3$ full MCMC chains ($20,000$ iterations each) after $5,000$ iterations were discarded as burn-in. The Rhat value shown in the density plots (right side) represent the point estimate for the Gelman-Rubin diagnostic. The value $1.1$ is used as a threshold, as explained in the main text. Therefore, we say that a factor of $1.1$ or below indicates that the parameter has reached a level of convergence, which was achieved by all parameters in the model. 
+
+\ 
+
+\ 
+
+```{r, echo=FALSE}
+
+BurPer <- 5000
+c1 <- as.mcmc(read.csv(paste0("chain1.csv")))
+c2 <- as.mcmc(read.csv(paste0("chain2.csv")))
+c3 <- as.mcmc(read.csv(paste0("chain3.csv")))
+
+x1 <- window(c1,start = BurPer+1,dim(c1)[1])
+x2 <- window(c2,start = BurPer+1,dim(c1)[1])
+x3 <- window(c3,start = BurPer+1,dim(c1)[1])
+
+mcmc_chains <- as.mcmc.list(list(x1,x2,x3))
+
+
+MCMCtrace(mcmc_chains, 
+          params = colnames(c1)[1:44],
+          ISB = FALSE,
+          pdf = FALSE,
+          Rhat = TRUE,
+          iter = dim(x3)[1])
+```
+
+\newpage
+
+**MCMC Diagnostics 2.** We computed the Monte-Carlo Standard Error (MCSE), which is a measure of the precision of the posterior distribution obtained from a MCMC algorithm. The purpose of MCSE is to provide a measure of the accuracy of the estimate of the posterior distribution, which is the distribution of the parameters of interest after taking into account the data and prior information. MCSE is calculated by estimating the standard deviation of the MCMC samples of the posterior distribution, which provides a measure of the variability in the posterior estimates due to the Monte Carlo sampling process. This value is then divided by the square root of the effective sample size (ESS), which is the number of independent samples that the MCMC algorithm generates. For the parameters in the model, we obtained MCSE values between $0.00001$ and $0.04177$, with mean of $0.01210$ and median of $0.00659$.
+
+\  
+
+```{r, echo=FALSE}
+getsummary2 <- function(data, BurPer = 0){
+  
+  vmean <- MCSE <- NULL
+  
+  for(i in 1:44){
+    Param <- data[-(1:BurPer),i]
+    MCSE[i] <- LaplacesDemon::MCSE(Param)
+  }
+    
+  df <- data.frame(Parameter = colnames(data)[1:44],
+             MCSE = MCSE)
+  rownames(df) <- NULL
+  df
+}
+
+combined_list <- combine.MCMC(mcmc_chains)
+options(digits = 4)
+MCSE_summary = getsummary2(data = combined_list, BurPer = BurPer)
+kbl(MCSE_summary, booktabs = T, longtable = T) %>%
+kable_styling(latex_options = c("hold_position","striped"))
+```
+
+
+
+
+
+

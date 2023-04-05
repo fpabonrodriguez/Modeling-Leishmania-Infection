@@ -1,0 +1,267 @@
+---
+title: "Supplementary Document: Sensitivity Analysis"
+subtitle: "Within-Host Bayesian Joint Modeling of Longitudinal and Time-to-Event Data of Leishmania Infection"
+author: "Felix M. Pabon-Rodriguez, Grant D. Brown, Breanna M. Scorza, and Christine A. Petersen"
+date: ''
+output: pdf_document
+---
+ 
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, fig.width=5, fig.height=4, fig.align = "center")
+
+# Loading libraries
+options(repos="https://cran.rstudio.com")
+install_load <- function(pkg){
+  new.pkg <- pkg[!(pkg %in% installed.packages()[, "Package"])]
+  if (length(new.pkg))
+    install.packages(new.pkg, dependencies = TRUE)
+  sapply(pkg, require, character.only = TRUE)
+}
+
+my_packages <- c("readxl", "dplyr", "coda", "ggplot2",
+                 "lattice", "bayesplot", "BayesPostEst", "ggmcmc", 
+                 "RCurl", "truncnorm", "kableExtra", "mvtnorm", "rlist", 
+                 "extraDistr", "msm", "tmvtnorm", "runjags", "plotrix",
+                 "lubridate", "ggpubr", "stringr", "nimble", "reshape2",
+                 "igraph", "parallel", "doParallel", "MCMCvis", "LaplacesDemon")
+invisible(install_load(my_packages))
+
+
+# Results
+results_file <- readRDS(file = "resultsBJLS_model.rds")
+results_mcmc <- as.mcmc.list(lapply(1:3,
+                                    function(x){as.mcmc(window(results_file[[x]],
+                                                               10001,20000))}))
+combined_list <- combine.MCMC(results_mcmc)
+
+results_file1 <- readRDS(file = "results_sens1.rds")
+results_mcmc1 <- as.mcmc.list(lapply(1:3,
+                                     function(x){as.mcmc(window(results_file1[[x]],
+                                                                10001,20000))}))
+combined_list1 <- combine.MCMC(results_mcmc1)
+
+results_file2 <- readRDS(file = "results_sens2.rds")
+results_mcmc2 <- as.mcmc.list(lapply(1:3,
+                                     function(x){as.mcmc(window(results_file2[[x]],
+                                                                10001,20000))}))
+combined_list2 <- combine.MCMC(results_mcmc2)
+
+options(digits = 4)
+
+```
+
+**Posterior Density Plots of Parameters based on Sensitivity Analysis.** We performed a sensitivity analysis, targeting the prior information on the variance of the model parameters, particularly on the driver effects and association parameters between the longitudinal and survival submodels. The three scenarios with different levels of prior variance are explained in the main text. The posterior density plots of the parameters are shown below based on the model component they belong to. 
+
+\vspace{0.5cm}
+
+**Pathogen Load (P)**
+
+```{r, echo=FALSE, message=FALSE, warning=FALSE}
+
+clnamesP <- c(colnames(combined_list[,grepl("betaP",colnames(combined_list))]),
+             colnames(combined_list[,grepl("alphaP",colnames(combined_list))]))
+
+
+for(i in 1:length(clnamesP)){
+    
+    df <- data.frame(combined_list[,clnamesP[i]],
+                 combined_list1[,clnamesP[i]],
+                 combined_list2[,clnamesP[i]])
+    colnames(df) <- c("Gamma","Uniform", "InvGamma")
+    dfm <- melt(df)
+
+    print(ggplot(dfm, aes(x=value, fill=variable)) +
+       geom_density(alpha=.5) +
+       scale_fill_manual(values=c("#F8766D", "#00BA38", "#619CFF"), 
+                         name="Prior Selection",
+                         labels=colnames(df)) + 
+       ggtitle(paste0("Posterior Density Plot of ",clnamesP[i])))
+    Sys.sleep(2)
+   
+}
+```
+
+\newpage
+
+**Antibody Levels (A)**
+
+```{r, echo=FALSE, message=FALSE, warning=FALSE}
+
+clnamesA <- c(colnames(combined_list[,grepl("betaA",colnames(combined_list))]),
+             colnames(combined_list[,grepl("alphaA",colnames(combined_list))]))
+
+for(i in 1:length(clnamesA)){
+    
+    df <- data.frame(combined_list[,clnamesA[i]],
+                 combined_list1[,clnamesA[i]],
+                 combined_list2[,clnamesA[i]])
+    colnames(df) <- c("Gamma","Uniform", "InvGamma")
+    dfm <- melt(df)
+
+    print(ggplot(dfm, aes(x=value, fill=variable)) +
+       geom_density(alpha=.5) +
+       scale_fill_manual(values=c("#F8766D", "#00BA38", "#619CFF"), 
+                         name="Prior Selection",
+                         labels=colnames(df)) + 
+       ggtitle(paste0("Posterior Density Plot of ",clnamesA[i])))
+    Sys.sleep(2)
+   
+}
+```
+
+\newpage
+
+**Disease Status (D)**
+
+```{r, echo=FALSE, message=FALSE, warning=FALSE}
+
+clnamesD <- c(colnames(combined_list[,grepl("betaD2",colnames(combined_list))]),
+             colnames(combined_list[,grepl("betaD3",colnames(combined_list))]),
+             colnames(combined_list[,grepl("alphaD2",colnames(combined_list))]),
+             colnames(combined_list[,grepl("alphaD3",colnames(combined_list))]))
+
+for(i in 1:length(clnamesD)){
+    
+    df <- data.frame(combined_list[,clnamesD[i]],
+                 combined_list1[,clnamesD[i]],
+                 combined_list2[,clnamesD[i]])
+    colnames(df) <- c("Gamma","Uniform", "InvGamma")
+    dfm <- melt(df)
+
+    print(ggplot(dfm, aes(x=value, fill=variable)) +
+       geom_density(alpha=.5) +
+       scale_fill_manual(values=c("#F8766D", "#00BA38", "#619CFF"), 
+                         name="Prior Selection",
+                         labels=colnames(df)) + 
+       ggtitle(paste0("Posterior Density Plot of ",clnamesD[i])))
+    Sys.sleep(2)
+   
+}
+```
+
+\newpage
+
+**Inflammatory Responses (I1, I2, I3)**
+
+```{r, echo=FALSE, message=FALSE, warning=FALSE}
+
+clnamesI <- c(colnames(combined_list[,grepl("betaI1",colnames(combined_list))]),
+             colnames(combined_list[,grepl("betaI2",colnames(combined_list))]),
+             colnames(combined_list[,grepl("betaI3",colnames(combined_list))]),
+             colnames(combined_list[,grepl("alphaI1",colnames(combined_list))]),
+             colnames(combined_list[,grepl("alphaI2",colnames(combined_list))]),
+             colnames(combined_list[,grepl("alphaI3",colnames(combined_list))]))
+
+for(i in 1:length(clnamesI)){
+    
+    df <- data.frame(combined_list[,clnamesI[i]],
+                 combined_list1[,clnamesI[i]],
+                 combined_list2[,clnamesI[i]])
+    colnames(df) <- c("Gamma","Uniform", "InvGamma")
+    dfm <- melt(df)
+
+    print(ggplot(dfm, aes(x=value, fill=variable)) +
+       geom_density(alpha=.5) +
+       scale_fill_manual(values=c("#F8766D", "#00BA38", "#619CFF"), 
+                         name="Prior Selection",
+                         labels=colnames(df)) + 
+       ggtitle(paste0("Posterior Density Plot of ",clnamesI[i])))
+    Sys.sleep(2)
+   
+}
+```
+
+\newpage
+
+**Regulatory Responses (R1, R2, R3)**
+
+```{r, echo=FALSE, message=FALSE, warning=FALSE}
+
+clnamesR <- c(colnames(combined_list[,grepl("betaR1",colnames(combined_list))]),
+             colnames(combined_list[,grepl("betaR2",colnames(combined_list))]),
+             colnames(combined_list[,grepl("betaR3",colnames(combined_list))]),
+             colnames(combined_list[,grepl("alphaR1",colnames(combined_list))]),
+             colnames(combined_list[,grepl("alphaR2",colnames(combined_list))]),
+             colnames(combined_list[,grepl("alphaR3",colnames(combined_list))]))
+
+for(i in 1:length(clnamesR)){
+    
+    df <- data.frame(combined_list[,clnamesR[i]],
+                 combined_list1[,clnamesR[i]],
+                 combined_list2[,clnamesR[i]])
+    colnames(df) <- c("Gamma","Uniform", "InvGamma")
+    dfm <- melt(df)
+
+    print(ggplot(dfm, aes(x=value, fill=variable)) +
+       geom_density(alpha=.5) +
+       scale_fill_manual(values=c("#F8766D", "#00BA38", "#619CFF"), 
+                         name="Prior Selection",
+                         labels=colnames(df)) + 
+       ggtitle(paste0("Posterior Density Plot of ",clnamesR[i])))
+    Sys.sleep(2)
+   
+}
+```
+
+\newpage
+
+**Standard Deviations and Covariance Matrix**
+
+```{r, echo=FALSE, message=FALSE, warning=FALSE}
+
+clnamesSD <- c("sigmaP", "sigmaA",
+              colnames(combined_list[,grepl("SigmaIR",colnames(combined_list))]))
+
+for(i in 1:length(clnamesSD)){
+    
+    df <- data.frame(combined_list[,clnamesSD[i]],
+                 combined_list1[,clnamesSD[i]],
+                 combined_list2[,clnamesSD[i]])
+    colnames(df) <- c("Gamma","Uniform", "InvGamma")
+    dfm <- melt(df)
+
+    print(ggplot(dfm, aes(x=value, fill=variable)) +
+       geom_density(alpha=.5) +
+       scale_fill_manual(values=c("#F8766D", "#00BA38", "#619CFF"), 
+                         name="Prior Selection",
+                         labels=colnames(df)) + 
+       ggtitle(paste0("Posterior Density Plot of ",clnamesSD[i])))
+    Sys.sleep(2)
+   
+}
+```
+
+\newpage
+
+**Hazard Parameters**
+
+```{r, echo=FALSE, message=FALSE, warning=FALSE}
+
+clnamesSurv <- c("shape", "scale",
+              colnames(combined_list[,grepl("assoc",colnames(combined_list))]),
+              colnames(combined_list[,grepl("gammaS",colnames(combined_list))]))
+
+for(i in 1:length(clnamesSurv)){
+    
+    df <- data.frame(combined_list[,clnamesSurv[i]],
+                 combined_list1[,clnamesSurv[i]],
+                 combined_list2[,clnamesSurv[i]])
+    colnames(df) <- c("Gamma","Uniform", "InvGamma")
+    dfm <- melt(df)
+
+    print(ggplot(dfm, aes(x=value, fill=variable)) +
+       geom_density(alpha=.5) +
+       scale_fill_manual(values=c("#F8766D", "#00BA38", "#619CFF"), 
+                         name="Prior Selection",
+                         labels=colnames(df)) + 
+       ggtitle(paste0("Posterior Density Plot of ",clnamesSurv[i])))
+    Sys.sleep(2)
+   
+}
+```
+
+
+
+
+
+

@@ -205,40 +205,11 @@ for(i in 1:length(clnamesR)){
 
 \newpage
 
-**Standard Deviations and Covariance Matrix**
+**Hazard (Risk of Death)**
 
 ```{r, echo=FALSE, message=FALSE, warning=FALSE}
 
-clnamesSD <- c("sigmaP", "sigmaA",
-              colnames(combined_list[,grepl("SigmaIR",colnames(combined_list))]))
-
-for(i in 1:length(clnamesSD)){
-    
-    df <- data.frame(combined_list[,clnamesSD[i]],
-                 combined_list1[,clnamesSD[i]],
-                 combined_list2[,clnamesSD[i]])
-    colnames(df) <- c("Gamma","Uniform", "InvGamma")
-    dfm <- melt(df)
-
-    print(ggplot(dfm, aes(x=value, fill=variable)) +
-       geom_density(alpha=.5) +
-       scale_fill_manual(values=c("#F8766D", "#00BA38", "#619CFF"), 
-                         name="Prior Selection",
-                         labels=colnames(df)) + 
-       ggtitle(paste0("Posterior Density Plot of ",clnamesSD[i])))
-    Sys.sleep(2)
-   
-}
-```
-
-\newpage
-
-**Hazard Parameters**
-
-```{r, echo=FALSE, message=FALSE, warning=FALSE}
-
-clnamesSurv <- c("shape", "scale",
-              colnames(combined_list[,grepl("assoc",colnames(combined_list))]),
+clnamesSurv <- c(colnames(combined_list[,grepl("assoc",colnames(combined_list))]),
               colnames(combined_list[,grepl("gammaS",colnames(combined_list))]))
 
 for(i in 1:length(clnamesSurv)){

@@ -98,6 +98,10 @@ dt_R1 <- matrix(as.numeric(as.matrix(dt_R1)), nrow = nrow(dt_R1))
 dt_R2 <- matrix(as.numeric(as.matrix(dt_R2)), nrow = nrow(dt_R2))
 dt_R3 <- matrix(as.numeric(as.matrix(dt_R3)), nrow = nrow(dt_R3))
 
+# Remove time point 4 from PD1 responses for both CD4 and CD8
+dt_R2[,4] <- rep(NA, nrow(dt_R2)) 
+dt_R3[,4] <- rep(NA, nrow(dt_R3)) 
+
 # Dimensions
 N <- nrow(leish)
 Time <- ncol(dt_P)
@@ -761,7 +765,7 @@ pred.plot <- function(subj = 1,
   lines(2:pred_time, trP[subj,2:pred_time]*generalmaxP, col = "black",lwd = 4, lty=1, type="b")
   lines(2:pred_time, Pestimate[2:pred_time],col = "red",lwd = 4)
   grid(NULL, NULL, col = "white")
-  legend("topleft", legend=c("Predicted", "Observed", "95% CI Bounds"), 
+  legend("topleft", legend=c("Mean of Predictions", "Observed", "95% CI Bounds"), 
          lty = c(1,2,2), lwd = c(4,4,4), col = c("red", "black", "royalblue3"),
          inset = 0.02, cex = 0.85, seg.len=3.5, pch = c(NA,19,NA), bg='white')
   dev.off() 
@@ -790,7 +794,7 @@ pred.plot <- function(subj = 1,
   lines(2:pred_time, uppera95[2:pred_time], col = "royalblue3", lwd = 4, lty = 2)
   lines(2:pred_time, trA[subj,2:pred_time]*generalmaxA, col = "forestgreen",lwd=4, lty=1, type="b")
   lines(2:pred_time, Aestimate[2:pred_time], col = "black", lwd = 4)
-  legend("topleft", legend=c("Predicted", "Observed","95% CI Bounds"), 
+  legend("topleft", legend=c("Mean of Predictions", "Observed","95% CI Bounds"), 
          lty = c(1,2,2), lwd = c(4,4,4), col = c("black", "forestgreen","royalblue3"),
          inset = 0.02, cex = 0.85, seg.len=3.5, pch = c(NA,19,NA), bg='white')
   dev.off() 
@@ -863,7 +867,7 @@ pred.plot <- function(subj = 1,
   lines(2:pred_time, trIR[subj,1,2:pred_time], col = "black",lwd = 4, lty=1, type="b")
   lines(2:pred_time, IRestimate[1,2:pred_time], col = "blue",lwd = 4)
   grid(NULL, NULL, col = "white")
-  legend("topleft", legend=c("Predicted", "Observed", "95% CI Bounds"), 
+  legend("topleft", legend=c("Mean of Predictions", "Observed", "95% CI Bounds"), 
          lty = c(1,2,2), lwd = c(4,4,4), col = c("blue", "black", "royalblue3"),
          inset = 0.02, cex = 0.85, seg.len=3.5, pch = c(NA,19,NA), bg='white')
   dev.off() 
@@ -895,7 +899,7 @@ pred.plot <- function(subj = 1,
   lines(2:pred_time, trIR[subj,2,2:pred_time], col = "black",lwd = 4, lty=1, type="b")
   lines(2:pred_time, IRestimate[2,2:pred_time] ,col = "blue",lwd = 4)
   grid(NULL, NULL, col = "white")
-  legend("topleft", legend=c("Predicted", "Observed","95% CI Bounds"), 
+  legend("topleft", legend=c("Mean of Predictions", "Observed","95% CI Bounds"), 
          lty = c(1,2,2), lwd = c(4,4,4), col = c("blue", "black","royalblue3"),
          inset = 0.02, cex = 0.85, seg.len=3.5, pch = c(NA,19,NA), bg='white')
   dev.off() 
@@ -927,7 +931,7 @@ pred.plot <- function(subj = 1,
   lines(2:pred_time, trIR[subj,3,2:pred_time], col = "black",lwd = 4, lty=1, type="b")
   lines(2:pred_time, IRestimate[3,2:pred_time] ,col = "blue",lwd = 4)
   grid(NULL, NULL, col = "white")
-  legend("topleft", legend=c("Predicted", "Observed","95% CI Bounds"), 
+  legend("topleft", legend=c("Mean of Predictions", "Observed","95% CI Bounds"), 
          lty = c(1,2,2), lwd = c(4,4,4), col = c("blue", "black","royalblue3"),
          inset = 0.02, cex = 0.85, seg.len=3.5, pch = c(NA,19,NA), bg='white')
   dev.off() 
@@ -959,7 +963,7 @@ pred.plot <- function(subj = 1,
   lines(2:pred_time, trIR[subj,4,2:pred_time], col = "black",lwd = 4, lty=1, type="b")
   lines(2:pred_time, IRestimate[4,2:pred_time] ,col = "purple",lwd = 4)
   grid(NULL, NULL, col = "white")
-  legend("topleft", legend=c("Predicted", "Observed","95% CI Bounds"), 
+  legend("topleft", legend=c("Mean of Predictions", "Observed","95% CI Bounds"), 
          lty = c(1,2,2), lwd = c(4,4,4), col = c("purple", "black","royalblue3"),
          inset = 0.02, cex = 0.85, seg.len=3.5, pch = c(NA,19,NA), bg='white')
   dev.off() 
@@ -991,7 +995,7 @@ pred.plot <- function(subj = 1,
   lines(2:pred_time, trIR[subj,5,2:pred_time], col = "black",lwd = 4, lty=1, type="b")
   lines(2:pred_time, IRestimate[5,2:pred_time] ,col = "purple",lwd = 4)
   grid(NULL, NULL, col = "white")
-  legend("topleft", legend=c("Predicted","Observed","95% CI Bounds"), 
+  legend("topleft", legend=c("Mean of Predictions","Observed","95% CI Bounds"), 
          lty = c(1,2,2), lwd = c(4,4,4), col = c("purple", "black","royalblue3"),
          inset = 0.02, cex = 0.85, seg.len=3.5, pch = c(NA,19,NA), bg='white')
   dev.off() 
@@ -1023,7 +1027,7 @@ pred.plot <- function(subj = 1,
   lines(2:pred_time, trIR[subj,6,2:pred_time], col = "black",lwd = 4, lty=1, type="b")
   lines(2:pred_time, IRestimate[6,2:pred_time] ,col = "purple",lwd = 4)
   grid(NULL, NULL, col = "white")
-  legend("topleft", legend=c("Predicted","Observed","95% CI Bounds"), 
+  legend("topleft", legend=c("Mean of Predictions","Observed","95% CI Bounds"), 
          lty = c(1,2,2), lwd = c(4,4,4), col = c("purple", "black","royalblue3"),
          inset = 0.02, cex = 0.85, seg.len=3.5, pch = c(NA,19,NA), bg='white')
   dev.off() 
@@ -1035,4 +1039,3 @@ pred.plot(subj = 2, rescaled = TRUE, pred_time = 4)
 pred.plot(subj = 3, rescaled = TRUE, pred_time = 4)
 pred.plot(subj = 4, rescaled = TRUE, pred_time = 4)
 
- 

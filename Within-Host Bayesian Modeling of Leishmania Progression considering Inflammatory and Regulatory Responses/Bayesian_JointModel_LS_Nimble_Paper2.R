@@ -8,7 +8,7 @@
 ########################################################################
 # Loading libraries
 ########################################################################
-
+ 
 # Loading libraries
 options(repos="https://cran.rstudio.com")
 install_load <- function(pkg){
@@ -33,7 +33,7 @@ invisible(install_load(my_packages))
 # Creating clusters
 ncore <- 3    
 cl <- makeCluster(ncore, outfile = "", type = "FORK")
-clusterSetRNGStream(cl, iseed = 90905)
+clusterSetRNGStream(cl, iseed = 82303)
 registerDoParallel(cl)
 
 ########################################################################
@@ -106,6 +106,10 @@ dt_I3 <- matrix(as.numeric(as.matrix(dt_I3)), nrow = nrow(dt_I3))
 dt_R1 <- matrix(as.numeric(as.matrix(dt_R1)), nrow = nrow(dt_R1))
 dt_R2 <- matrix(as.numeric(as.matrix(dt_R2)), nrow = nrow(dt_R2))
 dt_R3 <- matrix(as.numeric(as.matrix(dt_R3)), nrow = nrow(dt_R3))
+
+# Remove time point 4 from PD1 responses for both CD4 and CD8
+dt_R2[,4] <- rep(NA, nrow(dt_R2)) 
+dt_R3[,4] <- rep(NA, nrow(dt_R3)) 
 
 # Dimensions
 N <- nrow(leish)
@@ -366,7 +370,7 @@ BayesianModel <- nimbleCode({
     betaR2[i] ~ dnorm(0, sd = sigma.betaR2)
     betaR3[i] ~ dnorm(0, sd = sigma.betaR3)
   }
-  
+   
   # Coefficients for Non-time-varying Predictors
   for(i in 1:ncolsX){
     alphaP[i] ~ dnorm(0, sd = 1)
@@ -381,7 +385,7 @@ BayesianModel <- nimbleCode({
     alphaR3[i] ~ dnorm(0, sd = 1)
   }
   
-  # Variances of Coefficients of longitudinal outcomes
+  # Variances of Coefficients of Longitudinal outcomes
   sigma2.betaP ~ dgamma(1,1)
   sigma2.betaA ~ dgamma(1,1)
   sigma2.betaD2 ~ dgamma(1,1)
@@ -402,28 +406,6 @@ BayesianModel <- nimbleCode({
   sigma.betaR1 <- sqrt(sigma2.betaR1)
   sigma.betaR2 <- sqrt(sigma2.betaR2)
   sigma.betaR3 <- sqrt(sigma2.betaR3)
-  
-  # Variances for Coefficients of non-time-varying predictors
-  sigma2.alphaP ~ dgamma(1,1)
-  sigma2.alphaA ~ dgamma(1,1)
-  sigma2.alphaD2 ~ dgamma(1,1)
-  sigma2.alphaD3 ~ dgamma(1,1)
-  sigma2.alphaI1 ~ dgamma(1,1)
-  sigma2.alphaI2 ~ dgamma(1,1)
-  sigma2.alphaI3 ~ dgamma(1,1)
-  sigma2.alphaR1 ~ dgamma(1,1)
-  sigma2.alphaR2 ~ dgamma(1,1)
-  sigma2.alphaR3 ~ dgamma(1,1)
-  sigma.alphaP <- sqrt(sigma2.alphaP)
-  sigma.alphaA <- sqrt(sigma2.alphaA)
-  sigma.alphaD2 <- sqrt(sigma2.alphaD2)
-  sigma.alphaD3 <- sqrt(sigma2.alphaD3)
-  sigma.alphaI1 <- sqrt(sigma2.alphaI1)
-  sigma.alphaI2 <- sqrt(sigma2.alphaI2)
-  sigma.alphaI3 <- sqrt(sigma2.alphaI3)
-  sigma.alphaR1 <- sqrt(sigma2.alphaR1)
-  sigma.alphaR2 <- sqrt(sigma2.alphaR2)
-  sigma.alphaR3 <- sqrt(sigma2.alphaR3)
   
   # Variances and Covariance Matrix
   sigma2P ~ dgamma(1,1)
@@ -684,26 +666,16 @@ nimbleinits <- function() {
        alphaR3 = rep(0,ncolsX), 
        sigma2P = runif(1),
        sigma2A = runif(1),
-       sigma2.betaP = runif(1),
-       sigma2.betaA = runif(1),
-       sigma2.betaD2 = runif(1),
-       sigma2.betaD3 = runif(1),
-       sigma2.betaI1 = runif(1),
-       sigma2.betaI2 = runif(1),
-       sigma2.betaI3 = runif(1),
-       sigma2.betaR1 = runif(1),
-       sigma2.betaR2 = runif(1),
-       sigma2.betaR3 = runif(1),
-       sigma2.alphaP = runif(1),
-       sigma2.alphaA = runif(1),
-       sigma2.alphaD2 = runif(1),
-       sigma2.alphaD3 = runif(1),
-       sigma2.alphaI1 = runif(1),
-       sigma2.alphaI2 = runif(1),
-       sigma2.alphaI3 = runif(1),
-       sigma2.alphaR1 = runif(1),
-       sigma2.alphaR2 = runif(1),
-       sigma2.alphaR3 = runif(1),
+       sigma2.betaP = 1,
+       sigma2.betaA = 1,
+       sigma2.betaD2 = 1,
+       sigma2.betaD3 = 1,
+       sigma2.betaI1 = 1,
+       sigma2.betaI2 = 1,
+       sigma2.betaI3 = 1,
+       sigma2.betaR1 = 1,
+       sigma2.betaR2 = 1,
+       sigma2.betaR3 = 1,
        thetaP  = runif(1),
        thetaA  = runif(1),
        thIR = c(diag(dimIR)),
@@ -732,8 +704,8 @@ results_fit <- foreach(x = 1:ncore,
              data = nimbledata,
              inits = nimbleinits,
              monitors = parameters,
-             niter = 225000,  
-             nburnin = 25000, 
+             niter = 300000,  
+             nburnin = 100000, 
              nchains = 1,
              thin = 10,
              progressBar = TRUE,
@@ -744,7 +716,7 @@ time2 <- Sys.time()
 saveRDS(results_fit, file = "resultsBJLS_model.rds")
 stopImplicitCluster()
 stopCluster(cl)
-    
+
 ########################################################################
 # MCMC Results
 ########################################################################
@@ -768,9 +740,11 @@ if(want.results == TRUE){
   # Parameters 
   MCMCtrace(results_mcmc, 
             params = parm.interest,
+            iter = 20000,
             ISB = TRUE,
             pdf = TRUE,
-            Rhat = TRUE)
+            Rhat = TRUE,
+            filename = "MCMCtrace_parameters.pdf")
   
   
   # Moving average parameters
@@ -794,10 +768,12 @@ if(want.results == TRUE){
   
   MCMCtrace(results_mcmc, 
             params = all_w_params,
+            iter = 20000,
             ISB = FALSE,
             pdf = TRUE,
             Rhat = TRUE,
-            exact = TRUE)
+            exact = TRUE,
+            filename = "MCMCtrace_w_parameters.pdf")
   
   
   # Latent quantities
@@ -806,9 +782,11 @@ if(want.results == TRUE){
                        vec_idx_miss_P,
                        vec_idx_miss_D,
                        vec_idx_miss_IR),
+            iter = 20000,
             ISB = FALSE,
             pdf = TRUE,
-            Rhat = TRUE)
+            Rhat = TRUE,
+            filename = "MCMCtrace_latent.pdf")
   
   # Hazard 
   logHaz <- c()
@@ -820,9 +798,11 @@ if(want.results == TRUE){
   
   MCMCtrace(results_mcmc, 
             params = c(logHaz,logSurv),
+            iter = 20000,
             ISB = FALSE,
             pdf = TRUE,
-            Rhat = TRUE)
+            Rhat = TRUE,
+            filename = "MCMCtrace_logHaz_logSurv.pdf")
   
   
 }

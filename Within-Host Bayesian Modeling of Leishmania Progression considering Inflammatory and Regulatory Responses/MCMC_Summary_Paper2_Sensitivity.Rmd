@@ -50,7 +50,7 @@ options(digits = 4)
 
 ```
 
-**Posterior Density Plots of Parameters based on Sensitivity Analysis.** We performed a sensitivity analysis, targeting the prior information on the variance of the model parameters, particularly on the driver effects and association parameters between the longitudinal and survival submodels. The three scenarios with different levels of prior variance are explained in the main text. The posterior density plots of the parameters are shown below based on the model component they belong to. 
+**Posterior Density Plots of Parameters based on Sensitivity Analysis.** We performed a sensitivity analysis, targeting the prior information on the variance of the model parameters, particularly on the driver effects and association parameters between the longitudinal and survival sub-models. The three scenarios with different levels of prior variance are explained in the main text. The posterior density plots of the parameters are shown below based on the model component they belong to. 
 
 \vspace{0.5cm}
 

@@ -32,14 +32,12 @@ invisible(install_load(my_packages))
 ########################################################################
 
 # Creating clusters
-seed_sens1 <- 202301    # sensitivity analysis 1   dunif(0,100)
-#seed_sens2 <- 202302   # sensitivity analysis 2   dinvgamma(2, 0.5)
-
+seed_sens1 <- 82301    # sensitivity analysis 1   dunif(0,100)
 ncore <- 3    
-cl <- makeCluster(ncore, outfile = "", type = "FORK")
+cl <- makeCluster(ncore, outfile = "log_run_sens1.log")
 clusterSetRNGStream(cl, iseed = seed_sens1)
 registerDoParallel(cl)
-filename_results <- "resultsBJLS_model_sens1.rds"
+filename_results <- "results_sens1.rds"
 
 
 ########################################################################
@@ -112,6 +110,10 @@ dt_I3 <- matrix(as.numeric(as.matrix(dt_I3)), nrow = nrow(dt_I3))
 dt_R1 <- matrix(as.numeric(as.matrix(dt_R1)), nrow = nrow(dt_R1))
 dt_R2 <- matrix(as.numeric(as.matrix(dt_R2)), nrow = nrow(dt_R2))
 dt_R3 <- matrix(as.numeric(as.matrix(dt_R3)), nrow = nrow(dt_R3))
+
+# Remove time point 4 from PD1 responses for both CD4 and CD8
+dt_R2[,4] <- rep(NA, nrow(dt_R2)) 
+dt_R3[,4] <- rep(NA, nrow(dt_R3)) 
 
 # Dimensions
 N <- nrow(leish)
@@ -707,9 +709,9 @@ results_fit <- foreach(x = 1:ncore,
              inits = nimbleinits,
              monitors = parameters,
              niter = 225000,  
-             nburnin = 25000, 
+             nburnin = 65000, 
              nchains = 1,
-             thin = 10,
+             thin = 8,
              progressBar = TRUE,
              samplesAsCodaMCMC = TRUE)
 }
@@ -727,7 +729,7 @@ want.results <- FALSE
 
 if(want.results == TRUE){
   # Results
-  results_file <- readRDS(file = "resultsBJLS_model.rds")
+  results_file <- readRDS(file = "results_sens1.rds")
   results_mcmc <- as.mcmc.list(lapply(1:3, function(x){as.mcmc(results_file[[x]])}))
   
   parm.interest <- c("betaP", "alphaP", "sigmaP", "betaA", "alphaA", "sigmaA", 
@@ -742,9 +744,11 @@ if(want.results == TRUE){
   # Parameters 
   MCMCtrace(results_mcmc, 
             params = parm.interest,
+            iter = 20000,
             ISB = TRUE,
             pdf = TRUE,
-            Rhat = TRUE)
+            Rhat = TRUE,
+            filename = "MCMCtrace_parameters_sens1.pdf")
   
   
   # Moving average parameters
@@ -768,10 +772,12 @@ if(want.results == TRUE){
   
   MCMCtrace(results_mcmc, 
             params = all_w_params,
+            iter = 20000,
             ISB = FALSE,
             pdf = TRUE,
             Rhat = TRUE,
-            exact = TRUE)
+            exact = TRUE,
+            filename = "MCMCtrace_w_parameters_sens1.pdf")
   
   
   # Latent quantities
@@ -780,9 +786,11 @@ if(want.results == TRUE){
                        vec_idx_miss_P,
                        vec_idx_miss_D,
                        vec_idx_miss_IR),
+            iter = 20000,
             ISB = FALSE,
             pdf = TRUE,
-            Rhat = TRUE)
+            Rhat = TRUE,
+            filename = "MCMCtrace_latent_sens1.pdf")
   
   # Hazard 
   logHaz <- c()
@@ -794,9 +802,11 @@ if(want.results == TRUE){
   
   MCMCtrace(results_mcmc, 
             params = c(logHaz,logSurv),
+            iter = 20000,
             ISB = FALSE,
             pdf = TRUE,
-            Rhat = TRUE)
+            Rhat = TRUE,
+            filename = "MCMCtrace_logHaz_logSurv_sens1.pdf")
   
   
 }

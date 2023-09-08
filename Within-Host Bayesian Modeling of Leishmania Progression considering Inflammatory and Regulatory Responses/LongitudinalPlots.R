@@ -165,35 +165,65 @@ g2 <- ggplot(data = long_antib, aes(x = factor(TimePoint), y = Value, group = ID
        x="Time Point", y="Value")
 
 
-g3 <- ggplot(data = long_I1, aes(x = factor(TimePoint), y = as.numeric(as.character(Value)), group = ID)) +
+long_I1$Value <- as.numeric(as.character(long_I1$Value))
+long_R1$Value <- as.numeric(as.character(long_R1$Value))
+long_I2$Value <- as.numeric(as.character(long_I2$Value))
+long_R2$Value <- as.numeric(as.character(long_R2$Value))
+long_I3$Value <- as.numeric(as.character(long_I3$Value))
+long_R3$Value <- as.numeric(as.character(long_R3$Value))
+
+longR2_reduced <- long_R2[long_R2$TimePoint %in% c(3,5),]
+longR3_reduced <- long_R3[long_R3$TimePoint %in% c(3,5),]
+
+df2 <- data.frame(
+  id = unique(long_R2$`leish$ID`),
+  x = rep(3,length(unique(long_R2$`leish$ID`))),
+  xend = rep(5,length(unique(long_R2$`leish$ID`))), 
+  y = longR2_reduced[longR2_reduced$TimePoint==3,]$Value,
+  yend = longR2_reduced[longR2_reduced$TimePoint==5,]$Value  
+)
+
+df3 <- data.frame(
+  id = unique(long_R3$`leish$ID`),
+  x = rep(3,length(unique(long_R3$`leish$ID`))),
+  xend = rep(5,length(unique(long_R3$`leish$ID`))), 
+  y = longR3_reduced[longR3_reduced$TimePoint==3,]$Value,
+  yend = longR3_reduced[longR3_reduced$TimePoint==5,]$Value  
+)
+
+g3 <- ggplot(data = long_I1, aes(x = factor(TimePoint), y = Value, group = ID)) +
   geom_line(aes(color=ID), colour=rgb(0,0,1, 0.5), size=1) +
   labs(title = "Inflammatory Response (I1) \n (%IFN-gamma+ of CD4+ CD49dhi)",
        x="Time Point", y="Percentage") + ylim(0,1)
 
-g4 <- ggplot(data = long_R1, aes(x = factor(TimePoint), y = as.numeric(as.character(Value)), group = ID)) +
+g4 <- ggplot(data = long_R1, aes(x = factor(TimePoint), y = Value, group = ID)) +
   geom_line(aes(color=ID), colour=rgb(0.6,0.2,0.9, 0.7), size=1) +
   labs(title = "Regulatory Response (R1) \n (%IL-10+ of CD4+ CD49dhi)",
        x="Time Point", y="Percentage") + ylim(0,1)
 
-g5 <- ggplot(data = long_I2, aes(x = factor(TimePoint), y = as.numeric(as.character(Value)), group = ID)) +
+g5 <- ggplot(data = long_I2, aes(x = factor(TimePoint), y = Value, group = ID)) +
   geom_line(aes(color=ID), colour=rgb(0,0,1, 0.5), size=1) +
   labs(title = "Inflammatory Response (I2) \n (%CSFElo of CD4+ CD49dhi)",
        x="Time Point", y="Percentage") + ylim(0,1)
 
-g6 <- ggplot(data = long_R2, aes(x = factor(TimePoint), y = as.numeric(as.character(Value)), group = ID)) +
+g6 <- ggplot(data = long_R2, aes(x = factor(TimePoint), y = Value, group = ID)) +
   geom_line(aes(color=ID), colour=rgb(0.6,0.2,0.9, 0.7), size=1) +
   labs(title = "Regulatory Response (R2) \n (%PD1+ of CD4+ CD49dhi)",
-       x="Time Point", y="Percentage") + ylim(0,1)
+       x="Time Point", y="Percentage") + ylim(0,1) + 
+  geom_segment(data = df2, aes(x, y, xend = xend, yend = yend, group = id),
+               alpha = 0.35, colour=rgb(0.6,0.2,0.9, 0.7))
 
-g7 <- ggplot(data = long_I3, aes(x = factor(TimePoint), y = as.numeric(as.character(Value)), group = ID)) +
+g7 <- ggplot(data = long_I3, aes(x = factor(TimePoint), y = Value, group = ID)) +
   geom_line(aes(color=ID), colour=rgb(0,0,1, 0.5), size=1) +
   labs(title = "Inflammatory Response (I3) \n (%CSFElo of CD8+ CD49dhi)",
-       x="Time Point", y="Percentage") + ylim(0,1)
+       x="Time Point", y="Percentage") + ylim(0,1) 
 
-g8 <- ggplot(data = long_R3, aes(x = factor(TimePoint), y = as.numeric(as.character(Value)), group = ID)) +
+g8 <- ggplot(data = long_R3, aes(x = factor(TimePoint), y = Value, group = ID)) +
   geom_line(aes(color=ID), colour=rgb(0.6,0.2,0.9, 0.7), size=1) +
   labs(title = "Regulatory Response (R3) \n (%PD1+ of CD8+ CD49dhi)",
-       x="Time Point", y="Percentage") + ylim(0,1)
+       x="Time Point", y="Percentage") + ylim(0,1) + 
+  geom_segment(data = df3, aes(x, y, xend = xend, yend = yend, group = id),
+               alpha = 0.35, colour=rgb(0.6,0.2,0.9, 0.7))
 
 
 grid.arrange(g1,g3,g5,g7,
